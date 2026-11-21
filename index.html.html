@@ -1,0 +1,2434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEXUS: Galaxy Shooter</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js for procedural sci-fi audio -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --neon-cyan: #00f3ff;
+            --neon-magenta: #ff00ea;
+            --neon-yellow: #ffe600;
+            --neon-green: #00ff66;
+            --bg-dark: #050510;
+        }
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            background-color: var(--bg-dark);
+            color: #fff;
+            font-family: 'Rajdhani', sans-serif;
+            touch-action: none;
+        }
+        h1, h2, h3, .title-font { font-family: 'Orbitron', sans-serif; }
+
+        #game-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
+        }
+
+        .ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+            pointer-events: none;
+        }
+        .ui-layer > * { pointer-events: auto; }
+
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+            z-index: 15;
+        }
+        .screen.active {
+            opacity: 1; pointer-events: auto; z-index: 25;
+        }
+
+        .glass-panel {
+            background: rgba(8, 13, 28, 0.78);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 243, 255, 0.25);
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.65);
+        }
+
+        .glow-logo {
+            text-shadow: 0 0 20px rgba(0, 243, 255, 0.7), 0 0 40px rgba(255, 0, 234, 0.35);
+        }
+
+        .cy-btn {
+            background: rgba(0, 243, 255, 0.12);
+            border: 1px solid var(--neon-cyan);
+            color: var(--neon-cyan);
+            text-transform: uppercase;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            padding: 12px 20px;
+            border-radius: 10px;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 12px rgba(0, 243, 255, 0.2), inset 0 0 10px rgba(0, 243, 255, 0.1);
+        }
+        .cy-btn:hover:not(:disabled) {
+            background: var(--neon-cyan);
+            color: #050510;
+            box-shadow: 0 0 20px var(--neon-cyan);
+        }
+        .cy-btn-magenta {
+            background: rgba(255, 0, 234, 0.12);
+            border-color: var(--neon-magenta);
+            color: var(--neon-magenta);
+            box-shadow: 0 0 12px rgba(255, 0, 234, 0.2), inset 0 0 10px rgba(255, 0, 234, 0.1);
+        }
+        .cy-btn-magenta:hover:not(:disabled) {
+            background: var(--neon-magenta);
+            color: #050510;
+            box-shadow: 0 0 20px var(--neon-magenta);
+        }
+
+        .heal-btn-ready {
+            box-shadow: 0 0 20px rgba(0, 255, 102, 0.55), inset 0 0 12px rgba(0, 255, 102, 0.25);
+        }
+
+        /* Mobile Virtual Joystick */
+        #mobile-joystick-zone {
+            position: fixed;
+            bottom: 86px;
+            left: 20px;
+            width: 118px;
+            height: 118px;
+            border-radius: 9999px;
+            background: rgba(8, 13, 28, 0.55);
+            border: 1.5px solid rgba(0, 243, 255, 0.45);
+            box-shadow: 0 0 18px rgba(0, 243, 255, 0.15), inset 0 0 14px rgba(0, 243, 255, 0.08);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 35;
+            touch-action: none;
+        }
+        #mobile-joystick-knob {
+            width: 46px;
+            height: 46px;
+            border-radius: 9999px;
+            background: radial-gradient(circle at 30% 30%, #7df9ff, #00f3ff 65%, #0077ff);
+            box-shadow: 0 0 16px rgba(0, 243, 255, 0.85);
+            transform: translate(0px, 0px);
+            transition: transform 0.04s linear;
+            pointer-events: none;
+        }
+        @media (hover: none), (pointer: coarse), (max-width: 768px) {
+            body.in-gameplay #mobile-joystick-zone {
+                display: flex;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Damage Screen Flash -->
+    <div id="damage-overlay" class="fixed inset-0 pointer-events-none opacity-0 transition-opacity duration-150 z-20" style="background: radial-gradient(circle, transparent 45%, rgba(255, 20, 60, 0.55) 100%);"></div>
+
+    <div class="ui-layer" id="ui-container">
+        <!-- INITIALIZATION / ACCOUNT SCREEN -->
+        <div id="screen-init" class="screen active flex items-center justify-center bg-black/90 z-50 p-4">
+            <div class="text-center glass-panel p-7 md:p-9 rounded-2xl max-w-md w-full border-cyan-500/50">
+                <div class="text-cyan-400 text-xs tracking-[0.4em] mb-2">SISTEMA DE COMBATE ESPACIAL</div>
+                <h1 class="text-5xl md:text-6xl title-font text-white font-black mb-1 glow-logo">NEXUS</h1>
+                <p id="account-status-msg" class="mb-4 text-gray-400 text-xs md:text-sm">Inicia sesión con Google para guardar tu progreso en la nube o usa una cuenta local.</p>
+
+                <!-- Google Sign-In Button -->
+                <button type="button" id="btn-google-login" class="w-full mb-4 py-2.5 px-4 rounded-xl bg-white text-gray-900 font-bold text-xs md:text-sm flex items-center justify-center gap-2.5 shadow-lg hover:bg-gray-100 transition cursor-pointer" onclick="handleGoogleLogin()">
+                    <i class="fab fa-google text-red-500 text-base"></i>
+                    <span>CONTINUAR CON GOOGLE</span>
+                </button>
+
+                <div class="flex items-center gap-2 mb-4 text-[11px] text-gray-500 uppercase tracking-widest">
+                    <div class="h-px bg-white/10 flex-1"></div>
+                    <span>o cuenta local</span>
+                    <div class="h-px bg-white/10 flex-1"></div>
+                </div>
+
+                <!-- Account Mode Tabs -->
+                <div class="grid grid-cols-2 gap-2 mb-5">
+                    <button type="button" id="auth-tab-register" class="cy-btn py-2 px-3 text-xs" onclick="setAuthMode('register')">
+                        <i class="fas fa-user-plus mr-1"></i> CREAR CUENTA
+                    </button>
+                    <button type="button" id="auth-tab-login" class="cy-btn cy-btn-magenta py-2 px-3 text-xs" onclick="setAuthMode('login')">
+                        <i class="fas fa-right-to-bracket mr-1"></i> INICIAR SESIÓN
+                    </button>
+                </div>
+
+                <!-- Register Form -->
+                <div id="auth-form-register" class="space-y-3 text-left">
+                    <div>
+                        <label class="block text-xs text-cyan-300 font-bold mb-1 tracking-wider">NOMBRE DE PILOTO</label>
+                        <input type="text" id="reg-username" placeholder="Ej. NovaAce" maxlength="16" class="w-full bg-black/60 border border-cyan-500/70 text-white px-4 py-2.5 rounded-lg outline-none focus:shadow-[0_0_12px_var(--neon-cyan)] title-font text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-cyan-300 font-bold mb-1 tracking-wider">CLAVE / PIN DE CUENTA</label>
+                        <input type="password" id="reg-pin" placeholder="Mínimo 4 caracteres" maxlength="20" class="w-full bg-black/60 border border-cyan-500/70 text-white px-4 py-2.5 rounded-lg outline-none focus:shadow-[0_0_12px_var(--neon-cyan)] text-sm">
+                    </div>
+                    <button type="button" class="cy-btn w-full mt-2 text-sm" onclick="handleRegisterAccount()">CREAR CUENTA Y ENTRAR</button>
+                </div>
+
+                <!-- Login Form -->
+                <div id="auth-form-login" class="hidden space-y-3 text-left">
+                    <div>
+                        <label class="block text-xs text-fuchsia-300 font-bold mb-1 tracking-wider">CUENTA EXISTENTE</label>
+                        <select id="login-account-select" onchange="onSelectSavedAccount()" class="w-full bg-black/70 border border-fuchsia-500/60 text-white px-3 py-2.5 rounded-lg outline-none text-sm mb-2">
+                            <option value="">-- Seleccionar cuenta guardada --</option>
+                        </select>
+                        <input type="text" id="login-username" placeholder="Nombre de piloto..." maxlength="16" class="w-full bg-black/60 border border-fuchsia-500/70 text-white px-4 py-2.5 rounded-lg outline-none focus:shadow-[0_0_12px_var(--neon-magenta)] title-font text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-fuchsia-300 font-bold mb-1 tracking-wider">CLAVE / PIN</label>
+                        <input type="password" id="login-pin" placeholder="Tu clave..." maxlength="20" class="w-full bg-black/60 border border-fuchsia-500/70 text-white px-4 py-2.5 rounded-lg outline-none focus:shadow-[0_0_12px_var(--neon-magenta)] text-sm">
+                    </div>
+                    <button type="button" class="cy-btn cy-btn-magenta w-full mt-2 text-sm" onclick="handleLoginAccount()">INICIAR SESIÓN</button>
+                </div>
+
+                <p id="auth-feedback" class="mt-4 text-xs text-yellow-300 min-h-[18px]"></p>
+
+                <div class="mt-3 pt-3 border-t border-white/10 flex justify-between items-center text-xs">
+                    <button type="button" class="text-cyan-400 hover:text-cyan-300 underline" onclick="quickGuestEnter()">Entrar rápido</button>
+                    <button type="button" class="text-red-400 hover:text-red-300 underline" onclick="resetSave()">Borrar todas las cuentas</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN MENU -->
+        <div id="screen-menu" class="screen flex flex-col items-center justify-center p-4">
+            <div class="text-center mb-10">
+                <h1 class="text-6xl md:text-8xl title-font text-transparent bg-clip-text bg-gradient-to-b from-white to-cyan-400 font-black tracking-widest glow-logo">NEXUS</h1>
+                <h2 class="text-lg md:text-2xl text-fuchsia-500 tracking-[0.5em] mt-2 font-bold">GALAXY SHOOTER</h2>
+            </div>
+
+            <div class="flex flex-col gap-3.5 w-72">
+                <button type="button" class="cy-btn text-base" onclick="startGame('campaign')">
+                    <i class="fas fa-rocket mr-2"></i> CAMPAÑA (FASES)
+                </button>
+                <button type="button" class="cy-btn cy-btn-magenta text-base" onclick="startGame('endless')">
+                    <i class="fas fa-infinity mr-2"></i> SUPERVIVENCIA
+                </button>
+                <button type="button" class="cy-btn text-yellow-400 border-yellow-500 hover:bg-yellow-400 hover:text-black text-base" onclick="switchScreen('lobby')">
+                    <i class="fas fa-wrench mr-2"></i> HANGAR Y TIENDA
+                </button>
+                <button type="button" class="cy-btn border-emerald-400 text-emerald-300 hover:bg-emerald-400 hover:text-black text-sm" onclick="switchScreen('online')">
+                    <i class="fas fa-globe mr-2"></i> RANKING ONLINE
+                </button>
+                <button type="button" class="cy-btn border-purple-400 text-purple-300 hover:bg-purple-400 hover:text-black text-xs" onclick="logoutToAccountScreen()">
+                    <i class="fas fa-user-gear mr-2"></i> CAMBIAR / CERRAR CUENTA
+                </button>
+            </div>
+        </div>
+
+        <!-- ONLINE LEADERBOARD & CLOUD SAVE SCREEN -->
+        <div id="screen-online" class="screen flex flex-col p-3 md:p-6 bg-black/85 overflow-y-auto">
+            <div class="flex flex-wrap justify-between items-center gap-3 glass-panel p-3 md:p-4 rounded-xl mb-4">
+                <button type="button" class="cy-btn py-2 px-4 text-xs md:text-sm" onclick="switchScreen('menu')">
+                    <i class="fas fa-arrow-left mr-2"></i> VOLVER AL MENÚ
+                </button>
+                <div class="text-center">
+                    <h2 class="title-font text-lg md:text-2xl font-black text-emerald-400 tracking-wider">RED GALÁCTICA ONLINE</h2>
+                    <p id="online-status-text" class="text-xs text-gray-400">Sincronizando récords y guardado en la nube...</p>
+                </div>
+                <button type="button" class="cy-btn border-emerald-400 text-emerald-300 py-2 px-4 text-xs md:text-sm" onclick="syncCloudNow(true)">
+                    <i class="fas fa-cloud-arrow-up mr-2"></i> GUARDAR AHORA
+                </button>
+            </div>
+
+            <div class="glass-panel rounded-xl p-4 md:p-6 max-w-4xl w-full mx-auto flex-1">
+                <div class="flex justify-between items-center border-b border-white/10 pb-3 mb-4">
+                    <span class="title-font text-sm md:text-base text-cyan-400 font-bold"><i class="fas fa-trophy mr-2 text-yellow-400"></i> CLASIFICACIÓN DE PILOTOS</span>
+                    <span id="online-pilot-id" class="text-[11px] text-gray-400 font-mono">ID: --</span>
+                </div>
+                <div id="leaderboard-list" class="space-y-2.5">
+                    <div class="text-center text-gray-400 text-sm py-8">Cargando tabla de clasificación...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOBBY (HANGAR & SHOP) -->
+        <div id="screen-lobby" class="screen flex flex-col p-3 md:p-6 bg-black/85 overflow-y-auto">
+            <!-- Top Bar -->
+            <div class="flex flex-wrap justify-between items-center gap-3 glass-panel p-3 md:p-4 rounded-xl mb-4 relative z-30">
+                <button type="button" class="cy-btn py-2 px-4 text-xs md:text-sm relative z-40" onclick="switchScreen('menu')">
+                    <i class="fas fa-arrow-left mr-2"></i> VOLVER AL MENÚ
+                </button>
+                <div class="flex items-center gap-4 md:gap-6">
+                    <div class="flex items-center gap-2 text-yellow-400 font-bold title-font text-sm md:text-base">
+                        <i class="fas fa-coins"></i> <span id="lobby-coins">0</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-fuchsia-400 font-bold title-font text-sm md:text-base">
+                        <i class="fas fa-gem"></i> <span id="lobby-gems">0</span>
+                    </div>
+                    <button type="button" class="cy-btn cy-btn-magenta py-2 px-3 text-xs" onclick="switchScreen('menu')">
+                        SALIR
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 flex-1">
+                <!-- Left Column: Ship Preview & Specs -->
+                <div class="lg:col-span-3 glass-panel rounded-xl p-4 flex flex-col justify-between">
+                    <div>
+                        <h3 class="title-font text-base text-cyan-400 font-bold mb-1" id="lobby-ship-name">Valkyrie MK-I</h3>
+                        <p class="text-xs text-gray-400 mb-3" id="lobby-ship-desc">Caza ágil de reconocimiento.</p>
+                    </div>
+                    <div class="flex justify-center my-1">
+                        <canvas id="lobby-preview-canvas" width="180" height="180"></canvas>
+                    </div>
+                    <div class="space-y-2.5 text-xs">
+                        <div>
+                            <div class="flex justify-between mb-1"><span>CASCO (HP)</span><span id="stat-hp">120</span></div>
+                            <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                                <div id="bar-hp" class="h-full bg-green-400 transition-all" style="width: 40%;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1"><span>ESCUDO</span><span id="stat-shield">60</span></div>
+                            <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                                <div id="bar-shield" class="h-full bg-cyan-400 transition-all" style="width: 30%;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1"><span>DAÑO</span><span id="stat-dmg">18</span></div>
+                            <div class="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+                                <div id="bar-dmg" class="h-full bg-fuchsia-500 transition-all" style="width: 25%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Upgrades, Ships & Exclusive Shop -->
+                <div class="lg:col-span-9 glass-panel rounded-xl p-4 md:p-5 flex flex-col">
+                    <div class="flex flex-wrap gap-2.5 border-b border-white/10 pb-3.5 mb-4">
+                        <button type="button" id="tab-btn-upgrades" class="cy-btn py-2 px-4 text-xs" onclick="setLobbyTab('upgrades')">MEJORAS</button>
+                        <button type="button" id="tab-btn-ships" class="cy-btn py-2 px-4 text-xs" onclick="setLobbyTab('ships')">NAVES</button>
+                        <button type="button" id="tab-btn-shop" class="cy-btn cy-btn-magenta py-2 px-4 text-xs" onclick="setLobbyTab('shop')">TIENDA EXCLUSIVA</button>
+                    </div>
+                    <div id="lobby-tab-content" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 overflow-y-auto pr-1 flex-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GAMEPLAY HUD -->
+        <div id="screen-game" class="screen pointer-events-none">
+            <!-- Top HUD -->
+            <div class="absolute top-3 left-3 right-3 flex justify-between items-start gap-2 pointer-events-none">
+                <!-- HP & Shield Bars -->
+                <div class="glass-panel p-3 rounded-xl w-56 md:w-64 space-y-2 pointer-events-auto">
+                    <div>
+                        <div class="flex justify-between text-xs font-bold mb-0.5">
+                            <span class="text-green-400"><i class="fas fa-heart mr-1"></i> CASCO</span>
+                            <span id="hud-hp-text">120/120</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-gray-900 rounded-full overflow-hidden border border-white/10">
+                            <div id="hud-hp-bar" class="h-full bg-gradient-to-r from-green-500 to-emerald-300 transition-all duration-150" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs font-bold mb-0.5">
+                            <span class="text-cyan-400"><i class="fas fa-shield-alt mr-1"></i> ESCUDO</span>
+                            <span id="hud-shield-text">60/60</span>
+                        </div>
+                        <div class="w-full h-2 bg-gray-900 rounded-full overflow-hidden border border-white/10">
+                            <div id="hud-shield-bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-300 transition-all duration-150" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase Indicator -->
+                <div class="glass-panel px-4 py-2 rounded-xl text-center">
+                    <div id="hud-phase" class="title-font text-base md:text-xl font-black text-cyan-400">FASE 1</div>
+                    <div id="hud-subphase" class="text-xs text-yellow-400 tracking-wider mt-0.5">OLEADA DE ASALTO</div>
+                </div>
+
+                <!-- Score, Coins & Pause -->
+                <div class="flex items-center gap-2 pointer-events-auto">
+                    <div class="glass-panel px-3 py-2 rounded-xl text-right hidden sm:block">
+                        <div class="text-[10px] text-gray-400">PUNTOS</div>
+                        <div id="hud-score" class="title-font text-sm font-bold text-white">0</div>
+                    </div>
+                    <div class="glass-panel px-3 py-2 rounded-xl text-right">
+                        <div class="text-[10px] text-yellow-400">MONEDAS</div>
+                        <div id="hud-coins" class="title-font text-sm font-bold text-yellow-300">0</div>
+                    </div>
+                    <button type="button" onclick="togglePause()" class="glass-panel p-3 rounded-xl text-cyan-400 hover:bg-cyan-500/20 cursor-pointer">
+                        <i class="fas fa-pause"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Boss Health Bar -->
+            <div id="boss-ui" class="hidden absolute top-24 left-1/2 -translate-x-1/2 w-11/12 max-w-xl glass-panel p-3 rounded-xl border-red-500/50">
+                <div class="flex justify-between items-center mb-1">
+                    <span id="boss-name" class="title-font text-xs md:text-sm font-black tracking-wider text-red-400">JEFE</span>
+                    <span class="text-[10px] uppercase tracking-widest text-gray-300">OBJETIVO PRINCIPAL</span>
+                </div>
+                <div class="w-full h-3.5 bg-gray-950 rounded-full overflow-hidden border border-red-500/40">
+                    <div id="boss-hp-bar" class="h-full bg-red-500 transition-all duration-150" style="width: 100%;"></div>
+                </div>
+            </div>
+
+            <!-- 10-Second Phase Intermission Countdown -->
+            <div id="intermission-ui" class="hidden absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-panel px-8 py-6 rounded-2xl text-center border-green-400/60 shadow-[0_0_35px_rgba(0,255,102,0.3)]">
+                <div class="text-xs uppercase tracking-[0.25em] text-green-400 font-bold mb-1">¡FASE COMPLETADA!</div>
+                <div class="title-font text-lg md:text-2xl font-black text-white mb-2">SIGUIENTE FASE EN</div>
+                <div id="intermission-timer" class="title-font text-5xl md:text-6xl font-black text-green-400 my-1" style="text-shadow: 0 0 20px #00ff66;">10</div>
+                <p class="text-xs text-gray-300 mt-2">Usa tus botiquines (<span class="text-green-400 font-bold">H</span> o botón inferior derecho) para curarte.</p>
+            </div>
+
+            <!-- Bottom Left: Special Skill -->
+            <div class="absolute bottom-5 left-5 pointer-events-auto">
+                <button type="button" id="btn-skill" onclick="triggerSkill()" class="glass-panel px-4 py-3 rounded-2xl border-fuchsia-500/60 flex items-center gap-3 hover:scale-105 transition cursor-pointer">
+                    <div class="w-10 h-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-400 flex items-center justify-center text-fuchsia-300">
+                        <i class="fas fa-bolt text-lg"></i>
+                    </div>
+                    <div class="text-left">
+                        <div class="title-font text-xs font-bold text-fuchsia-300">NOVA [ESPACIO]</div>
+                        <div id="skill-status" class="text-xs text-green-400 font-bold">LISTO</div>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Mobile Virtual Joystick -->
+            <div id="mobile-joystick-zone" aria-label="Joystick táctil">
+                <div id="mobile-joystick-knob"></div>
+            </div>
+
+            <!-- Bottom Right: Accumulable Medkit Inventory Button -->
+            <div class="absolute bottom-5 right-5 pointer-events-auto flex flex-col items-end gap-1.5">
+                <span id="medkit-ready-badge" class="hidden text-[10px] font-bold tracking-wider bg-green-500 text-black px-2.5 py-0.5 rounded-full animate-bounce">
+                    CURACIÓN LISTA [H]
+                </span>
+                <button type="button" id="btn-use-medkit" onclick="useMedkit()" class="glass-panel px-4 py-3 rounded-2xl border-2 border-green-400 flex items-center gap-3 transition-transform active:scale-95 cursor-pointer">
+                    <div class="relative w-11 h-11 rounded-xl bg-green-500/20 border border-green-400 flex items-center justify-center text-green-400">
+                        <i class="fas fa-kit-medical text-xl"></i>
+                        <span id="hud-medkits" class="absolute -top-2 -right-2 bg-green-400 text-black title-font text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shadow">1</span>
+                    </div>
+                    <div class="text-left">
+                        <div class="title-font text-xs font-bold text-green-300">BOTIQUINES</div>
+                        <div class="text-[11px] text-gray-300">+55% Vida y Escudo</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <!-- PAUSE / GAME OVER MODAL -->
+        <div id="screen-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="glass-panel p-7 rounded-2xl max-w-sm w-full text-center">
+                <h2 id="modal-title" class="text-4xl title-font font-black text-cyan-400 mb-2">PAUSA</h2>
+                <p id="modal-desc" class="text-sm text-gray-300 mb-5">Combate en pausa.</p>
+
+                <div id="modal-stats" class="hidden grid grid-cols-2 gap-3 bg-black/50 p-3 rounded-xl mb-5 border border-white/10">
+                    <div>
+                        <div class="text-[11px] text-gray-400">FASE ALCANZADA</div>
+                        <div id="m-phase" class="title-font text-xl font-bold text-cyan-400">1</div>
+                    </div>
+                    <div>
+                        <div class="text-[11px] text-gray-400">PUNTUACIÓN</div>
+                        <div id="m-score" class="title-font text-xl font-bold text-yellow-400">0</div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-3">
+                    <button type="button" id="btn-resume" onclick="togglePause()" class="cy-btn w-full">CONTINUAR</button>
+                    <button type="button" onclick="startGame(gameState.mode)" class="cy-btn cy-btn-magenta w-full">REINICIAR MISIÓN</button>
+                    <button type="button" onclick="endGame()" class="cy-btn border-gray-500 text-gray-300 w-full">VOLVER AL MENÚ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        // --- PROCEDURAL AUDIO ENGINE (Tone.js) ---
+        const synthManager = {
+            initialized: false,
+            shootSynth: null,
+            hitSynth: null,
+            explodeNoise: null,
+            healSynth: null,
+            lastShootTime: 0,
+            lastHitTime: 0,
+            lastExplTime: 0,
+            init: async function() {
+                if (this.initialized) return;
+                try {
+                    if (typeof Tone !== 'undefined') {
+                        await Tone.start();
+                        this.shootSynth = new Tone.Synth({
+                            oscillator: { type: 'triangle' },
+                            envelope: { attack: 0.005, decay: 0.06, sustain: 0, release: 0.05 }
+                        }).toDestination();
+                        this.shootSynth.volume.value = -18;
+
+                        this.hitSynth = new Tone.MembraneSynth({
+                            pitchDecay: 0.02,
+                            octaves: 2,
+                            envelope: { attack: 0.001, decay: 0.04, sustain: 0 }
+                        }).toDestination();
+                        this.hitSynth.volume.value = -20;
+
+                        const filter = new Tone.Filter(900, "lowpass").toDestination();
+                        this.explodeNoise = new Tone.NoiseSynth({
+                            noise: { type: 'white' },
+                            envelope: { attack: 0.01, decay: 0.35, sustain: 0, release: 0.2 }
+                        }).connect(filter);
+                        this.explodeNoise.volume.value = -12;
+
+                        this.healSynth = new Tone.PolySynth(Tone.Synth, {
+                            envelope: { attack: 0.02, decay: 0.15, sustain: 0.1, release: 0.2 }
+                        }).toDestination();
+                        this.healSynth.volume.value = -12;
+
+                        this.initialized = true;
+                    }
+                } catch (err) {
+                    console.warn('Audio no disponible:', err);
+                }
+            },
+            playShoot: function() {
+                let now = Date.now();
+                if (this.initialized && now - this.lastShootTime > 75) {
+                    try {
+                        this.shootSynth.triggerAttackRelease("A5", "32n", Tone.now() + 0.005);
+                        this.lastShootTime = now;
+                    } catch(e) {}
+                }
+            },
+            playHit: function() {
+                let now = Date.now();
+                if (this.initialized && now - this.lastHitTime > 60) {
+                    try {
+                        this.hitSynth.triggerAttackRelease("C2", "32n", Tone.now() + 0.005);
+                        this.lastHitTime = now;
+                    } catch(e) {}
+                }
+            },
+            playExplosion: function() {
+                let now = Date.now();
+                if (this.initialized && now - this.lastExplTime > 120) {
+                    try {
+                        this.explodeNoise.triggerAttackRelease("8n", Tone.now() + 0.005);
+                        this.lastExplTime = now;
+                    } catch(e) {}
+                }
+            },
+            playHeal: function() {
+                if (this.initialized) {
+                    try {
+                        this.healSynth.triggerAttackRelease(["C5", "E5", "G5", "B5"], "8n", Tone.now() + 0.01);
+                    } catch(e) {}
+                }
+            }
+        };
+
+        // --- DATABASES ---
+        const SHIPS_DB = [
+            { id: 'ship_light', name: 'Valkyrie MK-I', desc: 'Caza ágil de reconocimiento con pulso láser veloz.', hp: 120, shield: 60, dmg: 18, speed: 7, fireRate: 12, color: '#00f3ff', design: 'dart', cost: 0, currency: 'coins' },
+            { id: 'ship_vanguard', name: 'Aegis Striker', desc: 'Interceptor equilibrado con alas en flecha y buen escudo.', hp: 175, shield: 110, dmg: 24, speed: 7.5, fireRate: 10, color: '#38bdf8', design: 'striker', cost: 450, currency: 'coins' },
+            { id: 'ship_heavy', name: 'Titan Dreadnought', desc: 'Blindaje pesado y cañones dobles de asalto.', hp: 250, shield: 120, dmg: 26, speed: 5, fireRate: 15, color: '#ffe600', design: 'heavy', cost: 800, currency: 'coins' },
+            { id: 'ship_phantom', name: 'Phantom Interceptor', desc: 'Cadencia de disparo extrema y ráfagas en abanico.', hp: 160, shield: 100, dmg: 22, speed: 8.5, fireRate: 8, color: '#ff00ea', design: 'wing', cost: 2000, currency: 'coins' },
+            { id: 'ship_viper', name: 'Nebula Viper', desc: 'Caza de asalto rápido con cañones gemelos de precisión.', hp: 210, shield: 135, dmg: 30, speed: 9, fireRate: 9, color: '#f97316', design: 'viper', cost: 2800, currency: 'coins' },
+            { id: 'ship_valkyrie_x', name: 'Valkyrie X-Zero', desc: 'Prototipo experimental de alta energía y maniobra.', hp: 310, shield: 190, dmg: 36, speed: 8.5, fireRate: 8, color: '#a855f7', design: 'valkyrie_x', cost: 35, currency: 'gems' },
+            { id: 'ship_omega', name: 'Omega Celestial', desc: 'Tecnología alienígena suprema con descarga cuádruple.', hp: 400, shield: 250, dmg: 45, speed: 8, fireRate: 7, color: '#00ff66', design: 'omega', cost: 50, currency: 'gems' },
+            { id: 'ship_chronos', name: 'Chronos Sovereign', desc: 'Nave insignia legendaria de núcleo hiper-denso.', hp: 520, shield: 320, dmg: 56, speed: 9.2, fireRate: 6, color: '#f43f5e', design: 'chronos', cost: 85, currency: 'gems' }
+        ];
+
+        const UPGRADES_DB = {
+            weapon: { name: 'Cañones de Plasma', desc: 'Aumenta el daño de tus disparos.', baseCost: 300, maxLv: 10 },
+            fireRate: { name: 'Cadencia de Tiro', desc: 'Reduce el tiempo entre cada disparo.', baseCost: 320, maxLv: 10 },
+            shield: { name: 'Generador de Escudo', desc: 'Aumenta la capacidad del escudo.', baseCost: 250, maxLv: 10 },
+            shieldRegen: { name: 'Núcleo de Recarga', desc: 'Acelera la regeneración pasiva de escudo.', baseCost: 280, maxLv: 10 },
+            hull:   { name: 'Aleación de Casco', desc: 'Aumenta la vida máxima de la nave.', baseCost: 250, maxLv: 10 },
+            thrusters: { name: 'Propulsores Iónicos', desc: 'Aumenta la velocidad de movimiento de la nave.', baseCost: 260, maxLv: 10 },
+            medkits: { name: 'Bahía de Botiquines', desc: 'Suma +1 botiquín inicial en cada misión.', baseCost: 350, maxLv: 8 }
+        };
+
+        const SHOP_DB = [
+            { id: 'pack_coins_small', name: 'Bolsa de Créditos', desc: 'Recarga rápida de +800 Monedas Galácticas para reparaciones y mejoras.', cost: 10, currency: 'gems', type: 'coins', amount: 800, icon: 'fa-coins', badge: 'SUMINISTRO' },
+            { id: 'pack_coins_med', name: 'Contenedor de Créditos', desc: 'Suministro militar con +2,200 Monedas Galácticas para tu hangar.', cost: 25, currency: 'gems', type: 'coins', amount: 2200, icon: 'fa-sack-dollar', badge: 'SUMINISTRO' },
+            { id: 'pack_coins_mega', name: 'Bóveda de la Federación', desc: 'Reserva masiva de +6,000 Monedas Galácticas para armamento pesado.', cost: 60, currency: 'gems', type: 'coins', amount: 6000, icon: 'fa-vault', badge: 'MEGA PACK' },
+            { id: 'pack_gems_small', name: 'Esquirlas Estelares', desc: 'Pequeño lote de +15 Gemas Exclusivas extraídas de nebulosas.', cost: 600, currency: 'coins', type: 'gems', amount: 15, icon: 'fa-gem', badge: 'CRISTALES' },
+            { id: 'pack_gems_med', name: 'Núcleo de Gemas', desc: 'Concentrado de +40 Gemas Exclusivas de alta pureza energética.', cost: 1500, currency: 'coins', type: 'gems', amount: 40, icon: 'fa-cubes', badge: 'CRISTALES' },
+            { id: 'pack_gems_mega', name: 'Singularity de Gemas', desc: 'Núcleo cuántico con +100 Gemas Exclusivas para tecnología élite.', cost: 3600, currency: 'coins', type: 'gems', amount: 100, icon: 'fa-atom', badge: 'ÉLITE' },
+            { id: 'medkit_pack_3', name: 'Botiquines de Campo x3', desc: 'Añade +3 Botiquines de emergencia a tu reserva de combate (+3 iniciales).', cost: 350, currency: 'coins', type: 'bonusMedkits', amount: 3, icon: 'fa-briefcase-medical', badge: 'MÉDICO' },
+            { id: 'medkit_pack_8', name: 'Bahía Médica Avanzada x8', desc: 'Abastece tu nave con +8 Botiquines extra al iniciar cada misión.', cost: 12, currency: 'gems', type: 'bonusMedkits', amount: 8, icon: 'fa-kit-medical', badge: 'MÉDICO' },
+            { id: 'upg_weapon_boost', name: 'Sobrecarga de Cañones', desc: 'Sube +1 nivel directo a Cañones de Plasma (si no está al máximo).', cost: 450, currency: 'coins', type: 'upgrade', stat: 'weapon', amount: 1, icon: 'fa-crosshairs', badge: 'ARMAMENTO' },
+            { id: 'upg_shield_boost', name: 'Matriz Deflectora Extra', desc: 'Sube +1 nivel directo a Generador de Escudo (si no está al máximo).', cost: 400, currency: 'coins', type: 'upgrade', stat: 'shield', amount: 1, icon: 'fa-shield-halved', badge: 'DEFENSA' },
+            { id: 'upg_hull_boost', name: 'Placas de Tungsteno', desc: 'Sube +1 nivel directo a Aleación de Casco (si no está al máximo).', cost: 400, currency: 'coins', type: 'upgrade', stat: 'hull', amount: 1, icon: 'fa-heart-pulse', badge: 'CASCO' },
+            { id: 'pack_vanguard', name: 'Kit de Vanguardia', desc: 'Combina +1,200 Monedas y +2 Botiquines extra para asaltos largos.', cost: 18, currency: 'gems', type: 'combo_vanguard', coins: 1200, medkits: 2, icon: 'fa-rocket', badge: 'COMBO' },
+            { id: 'pack_titan_ops', name: 'Protocolo Titán', desc: 'Otorga +2,500 Monedas y +1 nivel de Aleación de Casco.', cost: 30, currency: 'gems', type: 'combo_titan', coins: 2500, stat: 'hull', icon: 'fa-fort-awesome', badge: 'COMBO' },
+            { id: 'pack_nova_strike', name: 'Protocolo Nova', desc: 'Otorga +2,500 Monedas y +1 nivel de Cañones de Plasma.', cost: 30, currency: 'gems', type: 'combo_nova', coins: 2500, stat: 'weapon', icon: 'fa-burst', badge: 'COMBO' },
+            { id: 'pack_aegis_core', name: 'Núcleo Égida', desc: 'Otorga +20 Gemas y +1 nivel de Generador de Escudo.', cost: 1400, currency: 'coins', type: 'combo_aegis', gems: 20, stat: 'shield', icon: 'fa-circle-nodes', badge: 'COMBO' },
+            { id: 'unlock_titan_ship', name: 'Plano: Titan Dreadnought', desc: 'Desbloquea al instante el acorazado pesado Titan Dreadnought.', cost: 750, currency: 'coins', type: 'unlock_ship', shipId: 'ship_heavy', icon: 'fa-shuttle-space', badge: 'NAVE' },
+            { id: 'unlock_phantom_ship', name: 'Plano: Phantom Interceptor', desc: 'Desbloquea al instante el caza de alta cadencia Phantom Interceptor.', cost: 1850, currency: 'coins', type: 'unlock_ship', shipId: 'ship_phantom', icon: 'fa-fighter-jet', badge: 'NAVE' },
+            { id: 'unlock_omega_ship', name: 'Núcleo: Omega Celestial', desc: 'Desbloquea al instante la nave legendaria Omega Celestial.', cost: 45, currency: 'gems', type: 'unlock_ship', shipId: 'ship_omega', icon: 'fa-dragon', badge: 'LEGENDARIA' },
+            { id: 'supply_drop_coins', name: 'Cápsula de Rescate', desc: 'Recupera +1,000 Monedas de emergencia para seguir mejorando.', cost: 12, currency: 'gems', type: 'coins', amount: 1000, icon: 'fa-box-open', badge: 'SUMINISTRO' },
+            { id: 'supply_drop_gems', name: 'Prisma de Energía', desc: 'Convierte 1,200 Monedas en +30 Gemas Exclusivas.', cost: 1200, currency: 'coins', type: 'gems', amount: 30, icon: 'fa-gem', badge: 'CRISTALES' },
+            { id: 'medkit_mega_5', name: 'Caja Médica de Escuadrón x5', desc: 'Añade +5 Botiquines extra al iniciar cada partida.', cost: 20, currency: 'gems', type: 'bonusMedkits', amount: 5, icon: 'fa-suitcase-medical', badge: 'MÉDICO' },
+            { id: 'grand_armory_pack', name: 'Arsenal Supremo NEXUS', desc: 'Incluye +3,500 Monedas, +25 Gemas y +4 Botiquines iniciales.', cost: 55, currency: 'gems', type: 'combo_grand', coins: 3500, gems: 25, medkits: 4, icon: 'fa-crown', badge: 'SUPREMO' }
+        ];
+
+        // --- PLAYER PROFILE & ACCOUNT SAVE SYSTEM ---
+        const ACCOUNTS_STORAGE_KEY = 'nexus_galaxy_accounts_v1';
+        const ACTIVE_ACCOUNT_KEY = 'nexus_galaxy_active_account_v1';
+
+        function createDefaultProfile(name = 'Comandante', pin = '') {
+            return {
+                name,
+                pin,
+                coins: 600,
+                gems: 20,
+                bonusMedkits: 0,
+                activeShip: 'ship_light',
+                unlockedShips: ['ship_light'],
+                upgrades: { weapon: 1, fireRate: 1, shield: 1, shieldRegen: 1, hull: 1, thrusters: 1, medkits: 1 },
+                maxPhaseReached: 1,
+                bestScore: 0
+            };
+        }
+
+        let playerProfile = createDefaultProfile();
+        let accountsRegistry = {};
+        let activeAccountKey = null;
+
+        let cloudState = {
+            ready: false,
+            userId: null,
+            db: null,
+            leaderboard: [],
+            lastSyncMessage: 'Modo local'
+        };
+
+        function normalizeAccountKey(name) {
+            return (name || '').trim().toLowerCase();
+        }
+
+        function loadAccountsRegistry() {
+            try {
+                const raw = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+                accountsRegistry = raw ? JSON.parse(raw) : {};
+                if (!accountsRegistry || typeof accountsRegistry !== 'object') {
+                    accountsRegistry = {};
+                }
+            } catch (err) {
+                console.warn('Error cargando registro de cuentas:', err);
+                accountsRegistry = {};
+            }
+        }
+
+        function persistAccountsRegistry() {
+            try {
+                localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accountsRegistry));
+            } catch (err) {
+                console.warn('Error guardando registro de cuentas:', err);
+            }
+        }
+
+        function mergeProfileData(base, incoming) {
+            return {
+                ...base,
+                ...(incoming || {}),
+                unlockedShips: Array.isArray(incoming?.unlockedShips) && incoming.unlockedShips.length > 0
+                    ? incoming.unlockedShips
+                    : base.unlockedShips,
+                upgrades: {
+                    ...base.upgrades,
+                    ...((incoming && typeof incoming.upgrades === 'object') ? incoming.upgrades : {})
+                }
+            };
+        }
+
+        function loadGame() {
+            try {
+                loadAccountsRegistry();
+                const savedActiveKey = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+                if (savedActiveKey && accountsRegistry[savedActiveKey]) {
+                    activeAccountKey = savedActiveKey;
+                    playerProfile = mergeProfileData(
+                        createDefaultProfile(accountsRegistry[savedActiveKey].name, accountsRegistry[savedActiveKey].pin),
+                        accountsRegistry[savedActiveKey]
+                    );
+                    return;
+                }
+
+                const rawLegacy = localStorage.getItem('nexus_galaxy_save_v2');
+                if (rawLegacy) {
+                    const parsedLegacy = JSON.parse(rawLegacy);
+                    playerProfile = mergeProfileData(createDefaultProfile(parsedLegacy.name || 'Comandante', parsedLegacy.pin || ''), parsedLegacy);
+                    activeAccountKey = normalizeAccountKey(playerProfile.name) || 'comandante';
+                    return;
+                }
+            } catch (err) {
+                console.warn('Error cargando partida guardada:', err);
+            }
+            playerProfile = createDefaultProfile();
+        }
+
+        function saveGame() {
+            const key = activeAccountKey || normalizeAccountKey(playerProfile.name) || 'comandante';
+            activeAccountKey = key;
+            playerProfile = mergeProfileData(createDefaultProfile(playerProfile.name || 'Comandante', playerProfile.pin || ''), playerProfile);
+            accountsRegistry[key] = { ...playerProfile, updatedAt: Date.now() };
+            persistAccountsRegistry();
+            localStorage.setItem(ACTIVE_ACCOUNT_KEY, key);
+            localStorage.setItem('nexus_galaxy_save_v2', JSON.stringify(playerProfile));
+            if (cloudState.ready && cloudState.userId && typeof window.syncCloudNow === 'function') {
+                window.syncCloudNow(false);
+            }
+            if (cloudState.ready && cloudState.db && typeof window.syncLocalAccountToCloud === 'function') {
+                window.syncLocalAccountToCloud(key, accountsRegistry[key]);
+            }
+        }
+
+        function resetSave() {
+            localStorage.removeItem('nexus_galaxy_save_v2');
+            localStorage.removeItem(ACCOUNTS_STORAGE_KEY);
+            localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+            location.reload();
+        }
+
+        function populateAccountDropdown() {
+            loadAccountsRegistry();
+            const select = document.getElementById('login-account-select');
+            if (!select) return;
+            const keys = Object.keys(accountsRegistry);
+            select.innerHTML = '<option value="">-- Seleccionar cuenta guardada --</option>';
+            keys.forEach(k => {
+                const acc = accountsRegistry[k];
+                const opt = document.createElement('option');
+                opt.value = k;
+                opt.textContent = `${acc.name} (Fase ${acc.maxPhaseReached || 1} | ${acc.bestScore || 0} pts)`;
+                select.appendChild(opt);
+            });
+        }
+
+        function setAuthMode(mode) {
+            const regForm = document.getElementById('auth-form-register');
+            const loginForm = document.getElementById('auth-form-login');
+            const regBtn = document.getElementById('auth-tab-register');
+            const loginBtn = document.getElementById('auth-tab-login');
+            const feedback = document.getElementById('auth-feedback');
+            if (feedback) feedback.textContent = '';
+
+            if (mode === 'login') {
+                regForm.classList.add('hidden');
+                loginForm.classList.remove('hidden');
+                regBtn.style.background = '';
+                regBtn.style.color = '';
+                loginBtn.style.background = 'var(--neon-magenta)';
+                loginBtn.style.color = '#000';
+                populateAccountDropdown();
+            } else {
+                loginForm.classList.add('hidden');
+                regForm.classList.remove('hidden');
+                loginBtn.style.background = '';
+                loginBtn.style.color = '';
+                regBtn.style.background = 'var(--neon-cyan)';
+                regBtn.style.color = '#000';
+            }
+        }
+
+        function onSelectSavedAccount() {
+            const select = document.getElementById('login-account-select');
+            const usernameInput = document.getElementById('login-username');
+            if (select && select.value && accountsRegistry[select.value] && usernameInput) {
+                usernameInput.value = accountsRegistry[select.value].name;
+            }
+        }
+
+        async function enterAuthenticatedSession() {
+            await synthManager.init();
+            resize();
+            switchScreen('menu');
+            if (typeof window.syncCloudNow === 'function') {
+                window.syncCloudNow(false);
+            }
+        }
+
+        async function handleRegisterAccount() {
+            const nameInput = document.getElementById('reg-username').value.trim();
+            const pinInput = document.getElementById('reg-pin').value.trim();
+            const feedback = document.getElementById('auth-feedback');
+
+            if (nameInput.length < 2) {
+                feedback.textContent = 'Escribe un nombre de piloto de al menos 2 caracteres.';
+                return;
+            }
+            if (pinInput.length < 4) {
+                feedback.textContent = 'Crea una clave de al menos 4 caracteres para proteger tu cuenta.';
+                return;
+            }
+
+            loadAccountsRegistry();
+            const key = normalizeAccountKey(nameInput);
+            if (accountsRegistry[key]) {
+                feedback.textContent = 'Ese nombre de piloto ya existe. Cambia a "Iniciar Sesión".';
+                return;
+            }
+
+            activeAccountKey = key;
+            playerProfile = createDefaultProfile(nameInput, pinInput);
+            saveGame();
+            feedback.textContent = `¡Cuenta "${nameInput}" creada! Entrando al hangar...`;
+            await enterAuthenticatedSession();
+        }
+
+        async function handleLoginAccount() {
+            const nameInput = document.getElementById('login-username').value.trim();
+            const pinInput = document.getElementById('login-pin').value.trim();
+            const feedback = document.getElementById('auth-feedback');
+
+            loadAccountsRegistry();
+            const key = normalizeAccountKey(nameInput);
+            let existing = accountsRegistry[key];
+
+            if (!existing && typeof window.fetchCloudAccountByName === 'function') {
+                if (feedback) feedback.textContent = 'Buscando cuenta en la nube...';
+                const cloudAccount = await window.fetchCloudAccountByName(nameInput);
+                if (cloudAccount) {
+                    existing = cloudAccount;
+                    accountsRegistry[key] = { ...cloudAccount, updatedAt: Date.now() };
+                    persistAccountsRegistry();
+                }
+            }
+
+            if (!existing) {
+                feedback.textContent = 'No se encontró ninguna cuenta con ese nombre.';
+                return;
+            }
+            if (existing.pin && existing.pin !== pinInput) {
+                feedback.textContent = 'Clave incorrecta para esta cuenta.';
+                return;
+            }
+
+            activeAccountKey = key;
+            playerProfile = mergeProfileData(createDefaultProfile(existing.name, existing.pin), existing);
+            saveGame();
+            feedback.textContent = `Bienvenido de nuevo, ${playerProfile.name}.`;
+            await enterAuthenticatedSession();
+        }
+
+        async function quickGuestEnter() {
+            loadGame();
+            if (!playerProfile.name) {
+                playerProfile = createDefaultProfile('Comandante', '');
+            }
+            saveGame();
+            await enterAuthenticatedSession();
+        }
+
+        function logoutToAccountScreen() {
+            saveGame();
+            gameState.status = 'menu';
+            if (typeof window.signOutGoogleAccount === 'function') {
+                window.signOutGoogleAccount();
+            }
+            populateAccountDropdown();
+            setAuthMode('login');
+            switchScreen('init');
+        }
+        window.enterAuthenticatedSession = enterAuthenticatedSession;
+        window.mergeProfileData = mergeProfileData;
+        window.createDefaultProfile = createDefaultProfile;
+
+        // --- GAME STATE ---
+        let gameState = {
+            screen: 'init',
+            status: 'menu',
+            mode: 'campaign',
+            phase: 1,
+            phaseState: 'wave',
+            enemiesKilledInPhase: 0,
+            enemiesRequiredForBoss: 10,
+            intermissionTime: 10,
+            intermissionInterval: null,
+            score: 0,
+            medkits: 1,
+            medkitSpawnTimer: 0,
+            skillCooldown: 0,
+            cameraShake: 0,
+            keys: {},
+            pointer: { active: false, x: 0, y: 0 },
+            joystick: { active: false, touchId: null, dx: 0, dy: 0, maxRadius: 36 }
+        };
+
+        let player = null;
+        let entities = [];
+        let particles = [];
+        let stars = [];
+        let currentLobbyTab = 'upgrades';
+
+        // --- RESIZE & BACKGROUND ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            stars = [];
+            for (let i = 0; i < 120; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    size: Math.random() * 2 + 0.5,
+                    speed: Math.random() * 2 + 0.5,
+                    alpha: Math.random() * 0.8 + 0.2
+                });
+            }
+        }
+        window.addEventListener('resize', resize);
+
+        function random(min, max) { return Math.random() * (max - min) + min; }
+
+        function shakeCamera(amount) {
+            gameState.cameraShake = Math.max(gameState.cameraShake, amount);
+        }
+
+        function createExplosion(x, y, color, count = 20) {
+            for (let i = 0; i < count; i++) {
+                let angle = Math.random() * Math.PI * 2;
+                let speed = random(1, 6);
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1,
+                    decay: random(0.02, 0.05),
+                    color: color,
+                    size: random(2, 5)
+                });
+            }
+        }
+
+        // --- SHIP DRAWING HELPER ---
+        function drawShipGeometry(ctx, x, y, radius, color, design, isEnemy = false) {
+            ctx.save();
+            ctx.translate(x, y);
+            if (isEnemy) ctx.rotate(Math.PI);
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            ctx.strokeStyle = color;
+            ctx.fillStyle = '#0a0f1e';
+            ctx.lineWidth = 2.5;
+
+            ctx.beginPath();
+            if (design === 'heavy') {
+                ctx.moveTo(0, -radius);
+                ctx.lineTo(radius * 0.9, -radius * 0.2);
+                ctx.lineTo(radius, radius * 0.8);
+                ctx.lineTo(radius * 0.3, radius * 0.6);
+                ctx.lineTo(0, radius * 0.9);
+                ctx.lineTo(-radius * 0.3, radius * 0.6);
+                ctx.lineTo(-radius, radius * 0.8);
+                ctx.lineTo(-radius * 0.9, -radius * 0.2);
+            } else if (design === 'striker') {
+                ctx.moveTo(0, -radius * 1.05);
+                ctx.lineTo(radius * 0.55, -radius * 0.15);
+                ctx.lineTo(radius * 1.05, radius * 0.65);
+                ctx.lineTo(radius * 0.25, radius * 0.45);
+                ctx.lineTo(0, radius * 0.85);
+                ctx.lineTo(-radius * 0.25, radius * 0.45);
+                ctx.lineTo(-radius * 1.05, radius * 0.65);
+                ctx.lineTo(-radius * 0.55, -radius * 0.15);
+            } else if (design === 'wing') {
+                ctx.moveTo(0, -radius * 1.1);
+                ctx.lineTo(radius * 1.2, radius * 0.5);
+                ctx.lineTo(radius * 0.4, radius * 0.3);
+                ctx.lineTo(0, radius * 0.8);
+                ctx.lineTo(-radius * 0.4, radius * 0.3);
+                ctx.lineTo(-radius * 1.2, radius * 0.5);
+            } else if (design === 'viper') {
+                ctx.moveTo(0, -radius * 1.15);
+                ctx.lineTo(radius * 0.35, -radius * 0.2);
+                ctx.lineTo(radius * 1.15, radius * 0.2);
+                ctx.lineTo(radius * 0.7, radius * 0.85);
+                ctx.lineTo(0, radius * 0.5);
+                ctx.lineTo(-radius * 0.7, radius * 0.85);
+                ctx.lineTo(-radius * 1.15, radius * 0.2);
+                ctx.lineTo(-radius * 0.35, -radius * 0.2);
+            } else if (design === 'valkyrie_x') {
+                ctx.moveTo(0, -radius * 1.2);
+                ctx.lineTo(radius * 0.45, -radius * 0.5);
+                ctx.lineTo(radius * 1.25, radius * 0.1);
+                ctx.lineTo(radius * 0.85, radius * 0.75);
+                ctx.lineTo(radius * 0.25, radius * 0.45);
+                ctx.lineTo(0, radius * 0.95);
+                ctx.lineTo(-radius * 0.25, radius * 0.45);
+                ctx.lineTo(-radius * 0.85, radius * 0.75);
+                ctx.lineTo(-radius * 1.25, radius * 0.1);
+                ctx.lineTo(-radius * 0.45, -radius * 0.5);
+            } else if (design === 'omega') {
+                ctx.moveTo(0, -radius * 1.2);
+                ctx.lineTo(radius * 0.5, -radius * 0.4);
+                ctx.lineTo(radius * 1.1, 0);
+                ctx.lineTo(radius * 0.6, radius * 0.9);
+                ctx.lineTo(0, radius * 0.5);
+                ctx.lineTo(-radius * 0.6, radius * 0.9);
+                ctx.lineTo(-radius * 1.1, 0);
+                ctx.lineTo(-radius * 0.5, -radius * 0.4);
+            } else if (design === 'chronos') {
+                ctx.moveTo(0, -radius * 1.25);
+                ctx.lineTo(radius * 0.65, -radius * 0.35);
+                ctx.lineTo(radius * 1.2, -radius * 0.1);
+                ctx.lineTo(radius * 0.95, radius * 0.85);
+                ctx.lineTo(radius * 0.35, radius * 0.7);
+                ctx.lineTo(0, radius);
+                ctx.lineTo(-radius * 0.35, radius * 0.7);
+                ctx.lineTo(-radius * 0.95, radius * 0.85);
+                ctx.lineTo(-radius * 1.2, -radius * 0.1);
+                ctx.lineTo(-radius * 0.65, -radius * 0.35);
+            } else {
+                ctx.moveTo(0, -radius);
+                ctx.lineTo(radius * 0.85, radius * 0.8);
+                ctx.lineTo(0, radius * 0.45);
+                ctx.lineTo(-radius * 0.85, radius * 0.8);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            if (['striker', 'viper', 'valkyrie_x', 'omega', 'chronos'].includes(design)) {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(-radius * 0.25, -radius * 0.1);
+                ctx.lineTo(-radius * 0.75, radius * 0.45);
+                ctx.moveTo(radius * 0.25, -radius * 0.1);
+                ctx.lineTo(radius * 0.75, radius * 0.45);
+                ctx.stroke();
+            }
+
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.ellipse(0, -radius * 0.1, radius * 0.18, radius * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // --- ENTITIES ---
+        class Player {
+            constructor(shipData) {
+                this.x = width / 2;
+                this.y = height - 120;
+                this.radius = 22;
+                this.shipData = shipData;
+                this.color = shipData.color;
+
+                this.maxHp = shipData.hp + (playerProfile.upgrades.hull - 1) * 35;
+                this.hp = this.maxHp;
+                this.maxShield = shipData.shield + (playerProfile.upgrades.shield - 1) * 25;
+                this.shield = this.maxShield;
+                this.dmg = shipData.dmg + (playerProfile.upgrades.weapon - 1) * 8;
+                this.speed = shipData.speed + (playerProfile.upgrades.thrusters - 1) * 0.45;
+                this.fireRate = Math.max(4, shipData.fireRate - Math.floor((playerProfile.upgrades.fireRate - 1) * 0.65));
+                this.fireTimer = 0;
+                this.shieldRegenTimer = 0;
+            }
+
+            update() {
+                let dx = 0, dy = 0;
+                if (gameState.keys['ArrowLeft'] || gameState.keys['KeyA']) dx -= 1;
+                if (gameState.keys['ArrowRight'] || gameState.keys['KeyD']) dx += 1;
+                if (gameState.keys['ArrowUp'] || gameState.keys['KeyW']) dy -= 1;
+                if (gameState.keys['ArrowDown'] || gameState.keys['KeyS']) dy += 1;
+
+                if (gameState.joystick.active && (gameState.joystick.dx !== 0 || gameState.joystick.dy !== 0)) {
+                    dx = gameState.joystick.dx;
+                    dy = gameState.joystick.dy;
+                }
+
+                if (dx !== 0 || dy !== 0) {
+                    let len = Math.hypot(dx, dy);
+                    const magnitude = Math.min(1, len);
+                    this.x += (dx / len) * this.speed * magnitude;
+                    this.y += (dy / len) * this.speed * magnitude;
+                }
+
+                if (!gameState.joystick.active && gameState.pointer.active) {
+                    this.x += (gameState.pointer.x - this.x) * 0.18;
+                    this.y += (gameState.pointer.y - 40 - this.y) * 0.18;
+                }
+
+                this.x = Math.max(this.radius + 10, Math.min(width - this.radius - 10, this.x));
+                this.y = Math.max(this.radius + 10, Math.min(height - this.radius - 10, this.y));
+
+                if (gameState.status === 'playing') {
+                    this.fireTimer++;
+                    if (this.fireTimer >= this.fireRate) {
+                        this.fireTimer = 0;
+                        this.shoot();
+                    }
+                }
+
+                this.shieldRegenTimer++;
+                const regenDelay = Math.max(45, 120 - (playerProfile.upgrades.shieldRegen - 1) * 8);
+                if (this.shieldRegenTimer > regenDelay && this.shield < this.maxShield) {
+                    const regenAmount = 0.15 + (playerProfile.upgrades.shieldRegen - 1) * 0.08;
+                    this.shield = Math.min(this.maxShield, this.shield + regenAmount);
+                    updateHUD();
+                }
+            }
+
+            shoot() {
+                synthManager.playShoot();
+                const id = this.shipData.id;
+                if (id === 'ship_light') {
+                    entities.push(new Bullet(this.x, this.y - 25, 0, -14, false, this.dmg, this.color));
+                } else if (id === 'ship_vanguard' || id === 'ship_heavy') {
+                    entities.push(new Bullet(this.x - 14, this.y - 15, 0, -14, false, this.dmg * 0.65, this.color));
+                    entities.push(new Bullet(this.x + 14, this.y - 15, 0, -14, false, this.dmg * 0.65, this.color));
+                } else if (id === 'ship_phantom' || id === 'ship_viper') {
+                    entities.push(new Bullet(this.x, this.y - 25, 0, -16, false, this.dmg * 0.6, this.color));
+                    entities.push(new Bullet(this.x - 16, this.y - 10, -1.5, -15, false, this.dmg * 0.45, this.color));
+                    entities.push(new Bullet(this.x + 16, this.y - 10, 1.5, -15, false, this.dmg * 0.45, this.color));
+                } else if (id === 'ship_valkyrie_x') {
+                    entities.push(new Bullet(this.x - 12, this.y - 24, 0, -16.5, false, this.dmg * 0.6, this.color));
+                    entities.push(new Bullet(this.x + 12, this.y - 24, 0, -16.5, false, this.dmg * 0.6, this.color));
+                    entities.push(new Bullet(this.x - 20, this.y - 8, -1.2, -15.5, false, this.dmg * 0.4, '#00f3ff'));
+                    entities.push(new Bullet(this.x + 20, this.y - 8, 1.2, -15.5, false, this.dmg * 0.4, '#00f3ff'));
+                } else {
+                    entities.push(new Bullet(this.x - 10, this.y - 25, 0, -17.5, false, this.dmg * 0.65, this.color));
+                    entities.push(new Bullet(this.x + 10, this.y - 25, 0, -17.5, false, this.dmg * 0.65, this.color));
+                    entities.push(new Bullet(this.x - 22, this.y - 10, -2, -16.5, false, this.dmg * 0.45, '#00f3ff'));
+                    entities.push(new Bullet(this.x + 22, this.y - 10, 2, -16.5, false, this.dmg * 0.45, '#00f3ff'));
+                }
+            }
+
+            takeDamage(amount) {
+                this.shieldRegenTimer = 0;
+                if (this.shield > 0) {
+                    if (this.shield >= amount) {
+                        this.shield -= amount;
+                        amount = 0;
+                    } else {
+                        amount -= this.shield;
+                        this.shield = 0;
+                    }
+                }
+                if (amount > 0) {
+                    this.hp -= amount;
+                    const overlay = document.getElementById('damage-overlay');
+                    overlay.style.opacity = '1';
+                    setTimeout(() => overlay.style.opacity = '0', 120);
+                    shakeCamera(12);
+                }
+                updateHUD();
+                if (this.hp <= 0) {
+                    createExplosion(this.x, this.y, this.color, 50);
+                    synthManager.playExplosion();
+                    gameOver();
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.fillStyle = '#00f3ff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#00f3ff';
+                ctx.beginPath();
+                ctx.moveTo(this.x - 7, this.y + 18);
+                ctx.lineTo(this.x + 7, this.y + 18);
+                ctx.lineTo(this.x, this.y + 28 + Math.random() * 14);
+                ctx.fill();
+                ctx.restore();
+
+                drawShipGeometry(ctx, this.x, this.y, this.radius, this.color, this.shipData.design, false);
+
+                if (this.shield > 0) {
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(0, 243, 255, ${0.15 + (this.shield / this.maxShield) * 0.25})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, vx, vy, isEnemy, dmg, color) {
+                this.x = x; this.y = y;
+                this.vx = vx; this.vy = vy;
+                this.isEnemy = isEnemy;
+                this.dmg = dmg;
+                this.color = color;
+                this.radius = isEnemy ? 6 : 5;
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.x < -50 || this.x > width + 50 || this.y < -50 || this.y > height + 50) {
+                    this.markedForDeletion = true;
+                }
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                if (this.isEnemy) {
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                } else {
+                    ctx.roundRect(this.x - 2.5, this.y - 10, 5, 20, 3);
+                }
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Enemy {
+            constructor(x, y, tier = 1, isEscort = false) {
+                this.x = x; this.y = y;
+                this.tier = tier;
+                this.isEscort = isEscort;
+                this.isEnemy = true;
+                this.markedForDeletion = false;
+
+                const mult = 1 + (gameState.phase - 1) * 0.28;
+                this.maxHp = (tier === 1 ? 35 : 80) * mult;
+                this.hp = this.maxHp;
+                this.dmg = (tier === 1 ? 12 : 22) * mult;
+                this.radius = tier === 1 ? 18 : 26;
+                this.color = isEscort ? '#ff9900' : (tier === 1 ? '#ff00ea' : '#ffe600');
+                this.speed = (tier === 1 ? 2.4 : 1.6) * (1 + (gameState.phase - 1) * 0.04);
+                this.vx = Math.sin(Math.random() * Math.PI) * 1.5;
+                this.shootTimer = Math.floor(random(30, 110));
+            }
+
+            update() {
+                this.y += this.speed;
+                this.x += this.vx;
+
+                if (this.x < this.radius + 10 || this.x > width - this.radius - 10) {
+                    this.vx *= -1;
+                }
+
+                this.shootTimer--;
+                if (this.shootTimer <= 0 && this.y > 0 && this.y < height * 0.75) {
+                    this.shootTimer = Math.max(55, 130 - gameState.phase * 4);
+                    let angle = Math.atan2(player.y - this.y, player.x - this.x);
+                    let spd = 4.5 + Math.min(3, gameState.phase * 0.2);
+                    entities.push(new Bullet(this.x, this.y + this.radius, Math.cos(angle) * spd, Math.sin(angle) * spd, true, this.dmg, this.color));
+                }
+
+                if (this.y > height + 50) {
+                    this.markedForDeletion = true;
+                }
+            }
+
+            takeDamage(amount) {
+                this.hp -= amount;
+                synthManager.playHit();
+                if (this.hp <= 0 && !this.markedForDeletion) {
+                    this.markedForDeletion = true;
+                    createExplosion(this.x, this.y, this.color, 20);
+                    synthManager.playExplosion();
+
+                    gameState.score += this.tier * 100 * gameState.phase;
+                    if (!this.isEscort && gameState.phaseState === 'wave') {
+                        gameState.enemiesKilledInPhase++;
+                    }
+
+                    entities.push(new Pickup(this.x, this.y, 'coin'));
+
+                    if (Math.random() < 0.16) {
+                        entities.push(new Pickup(this.x + random(-15, 15), this.y, 'medkit'));
+                    }
+                    updateHUD();
+                }
+            }
+
+            draw(ctx) {
+                drawShipGeometry(ctx, this.x, this.y, this.radius, this.color, this.tier === 1 ? 'dart' : 'heavy', true);
+                if (this.hp < this.maxHp) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                    ctx.fillRect(this.x - 16, this.y - this.radius - 10, 32, 4);
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(this.x - 16, this.y - this.radius - 10, 32 * (this.hp / this.maxHp), 4);
+                }
+            }
+        }
+
+        class Boss {
+            constructor(phase) {
+                this.x = width / 2;
+                this.y = -120;
+                this.isEnemy = true;
+                this.isBoss = true;
+                this.markedForDeletion = false;
+                this.timer = 0;
+                this.escortTimer = 0;
+
+                const mult = 1 + (phase - 1) * 0.35;
+
+                if (phase === 3) {
+                    this.name = "FER: EL DESTRUCTOR";
+                    this.maxHp = 2200 * mult;
+                    this.color = "#ff00ea";
+                    this.radius = 65;
+                } else if (phase === 6) {
+                    this.name = "WICHO: EL RELÁMPAGO";
+                    this.maxHp = 3500 * mult;
+                    this.color = "#00f3ff";
+                    this.radius = 60;
+                } else if (phase === 10) {
+                    this.name = "DAVID: EL EMPERADOR SUPREMO";
+                    this.maxHp = 7500 * mult;
+                    this.color = "#ff2a2a";
+                    this.radius = 85;
+                } else {
+                    this.name = `COMANDANTE DE FASE ${phase}`;
+                    this.maxHp = 1100 * mult;
+                    this.color = "#ffe600";
+                    this.radius = 55;
+                }
+
+                this.hp = this.maxHp;
+                document.getElementById('boss-ui').classList.remove('hidden');
+                document.getElementById('boss-name').innerText = this.name;
+                document.getElementById('boss-name').style.color = this.color;
+
+                this.spawnEscorts();
+            }
+
+            spawnEscorts() {
+                const count = Math.min(4, 2 + Math.floor(gameState.phase / 3));
+                for (let i = 0; i < count; i++) {
+                    let offsetX = (i - (count - 1) / 2) * 110;
+                    let ex = Math.max(40, Math.min(width - 40, this.x + offsetX));
+                    entities.push(new Enemy(ex, this.y + 40, 1, true));
+                }
+            }
+
+            update() {
+                this.timer++;
+                this.escortTimer++;
+
+                if (this.y < height * 0.22) {
+                    this.y += 2;
+                } else {
+                    const speedMult = this.name.includes("WICHO") ? 0.045 : 0.022;
+                    this.x = (width / 2) + Math.sin(this.timer * speedMult) * (width * 0.32);
+
+                    if (this.escortTimer >= 420) {
+                        this.escortTimer = 0;
+                        const activeEscorts = entities.filter(e => e.isEscort).length;
+                        if (activeEscorts < 3) {
+                            this.spawnEscorts();
+                        }
+                    }
+
+                    const isEnraged = this.hp < this.maxHp * 0.5;
+                    const fireInterval = isEnraged ? 45 : 70;
+
+                    if (this.timer % fireInterval === 0) {
+                        const bulletsCount = isEnraged ? 10 : 6;
+                        for (let i = 0; i < bulletsCount; i++) {
+                            let angle = (Math.PI * 2 / bulletsCount) * i + (this.timer * 0.05);
+                            let spd = isEnraged ? 5.5 : 4.2;
+                            entities.push(new Bullet(this.x, this.y, Math.cos(angle) * spd, Math.sin(angle) * spd, true, 18 + gameState.phase * 2, this.color));
+                        }
+                    }
+
+                    if (this.timer % 95 === 0) {
+                        let angle = Math.atan2(player.y - this.y, player.x - this.x);
+                        for (let spread = -0.2; spread <= 0.2; spread += 0.2) {
+                            entities.push(new Bullet(this.x, this.y + this.radius * 0.5, Math.cos(angle + spread) * 6, Math.sin(angle + spread) * 6, true, 22 + gameState.phase * 2, '#ff3333'));
+                        }
+                    }
+                }
+
+                const pct = Math.max(0, (this.hp / this.maxHp) * 100);
+                document.getElementById('boss-hp-bar').style.width = pct + '%';
+                document.getElementById('boss-hp-bar').style.backgroundColor = this.color;
+            }
+
+            takeDamage(amount) {
+                this.hp -= amount;
+                synthManager.playHit();
+                if (this.hp <= 0 && !this.markedForDeletion) {
+                    this.markedForDeletion = true;
+                    document.getElementById('boss-ui').classList.add('hidden');
+
+                    entities.forEach(e => {
+                        if (e.isEnemy) {
+                            createExplosion(e.x, e.y, '#ff9900', 15);
+                            e.markedForDeletion = true;
+                        }
+                    });
+
+                    for (let i = 0; i < 6; i++) {
+                        setTimeout(() => {
+                            createExplosion(this.x + random(-60, 60), this.y + random(-60, 60), this.color, 35);
+                            synthManager.playExplosion();
+                            shakeCamera(15);
+                        }, i * 150);
+                    }
+
+                    gameState.score += 2500 * gameState.phase;
+                    for (let i = 0; i < 8; i++) {
+                        entities.push(new Pickup(this.x + random(-60, 60), this.y + random(-40, 40), 'coin'));
+                    }
+                    entities.push(new Pickup(this.x, this.y, 'medkit'));
+
+                    startPhaseIntermission();
+                }
+            }
+
+            draw(ctx) {
+                drawShipGeometry(ctx, this.x, this.y, this.radius, this.color, 'omega', true);
+                ctx.save();
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 25;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 14 + Math.sin(this.timer * 0.1) * 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Pickup {
+            constructor(x, y, type) {
+                this.x = x; this.y = y;
+                this.type = type;
+                this.radius = type === 'medkit' ? 16 : 11;
+                this.vy = 2.2;
+                this.markedForDeletion = false;
+                this.pulse = 0;
+            }
+
+            update() {
+                this.pulse += 0.1;
+                this.y += this.vy;
+
+                let dist = Math.hypot(player.x - this.x, player.y - this.y);
+                if (dist < 140) {
+                    this.x += (player.x - this.x) * 0.12;
+                    this.y += (player.y - this.y) * 0.12;
+                }
+
+                if (dist < player.radius + this.radius + 8) {
+                    this.markedForDeletion = true;
+                    if (this.type === 'coin') {
+                        playerProfile.coins += 25 * gameState.phase;
+                        saveGame();
+                    } else if (this.type === 'medkit') {
+                        gameState.medkits++;
+                        synthManager.playHeal();
+                    }
+                    updateHUD();
+                }
+
+                if (this.y > height + 40) this.markedForDeletion = true;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                if (this.type === 'coin') {
+                    ctx.fillStyle = '#ffe600';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#ffe600';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.font = 'bold 12px Orbitron';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('$', 0, 1);
+                } else {
+                    const scale = 1 + Math.sin(this.pulse) * 0.1;
+                    ctx.scale(scale, scale);
+                    ctx.fillStyle = '#052e16';
+                    ctx.strokeStyle = '#00ff66';
+                    ctx.lineWidth = 2.5;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00ff66';
+                    ctx.beginPath();
+                    ctx.roundRect(-14, -14, 28, 28, 6);
+                    ctx.fill();
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#00ff66';
+                    ctx.fillRect(-3, -9, 6, 18);
+                    ctx.fillRect(-9, -3, 18, 6);
+                }
+                ctx.restore();
+            }
+        }
+
+        // --- PHASE & INTERMISSION LOGIC ---
+        function startPhaseIntermission() {
+            gameState.phaseState = 'intermission';
+            gameState.intermissionTime = 10;
+
+            const ui = document.getElementById('intermission-ui');
+            const timerText = document.getElementById('intermission-timer');
+            ui.classList.remove('hidden');
+            timerText.innerText = gameState.intermissionTime;
+
+            document.getElementById('hud-subphase').innerText = "DESCANSO TÁCTICO";
+            document.getElementById('hud-subphase').className = "text-xs text-green-400 tracking-wider mt-0.5 font-bold";
+
+            if (gameState.intermissionInterval) clearInterval(gameState.intermissionInterval);
+
+            gameState.intermissionInterval = setInterval(() => {
+                if (gameState.status !== 'playing') return;
+
+                gameState.intermissionTime--;
+                timerText.innerText = gameState.intermissionTime;
+
+                if (gameState.intermissionTime <= 0) {
+                    clearInterval(gameState.intermissionInterval);
+                    ui.classList.add('hidden');
+                    advanceToNextPhase();
+                }
+            }, 1000);
+        }
+
+        function advanceToNextPhase() {
+            gameState.phase++;
+            if (gameState.phase > playerProfile.maxPhaseReached) {
+                playerProfile.maxPhaseReached = gameState.phase;
+                saveGame();
+            }
+
+            gameState.phaseState = 'wave';
+            gameState.enemiesKilledInPhase = 0;
+            gameState.enemiesRequiredForBoss = 8 + gameState.phase * 2;
+
+            document.getElementById('hud-phase').innerText = `FASE ${gameState.phase}`;
+            document.getElementById('hud-subphase').innerText = "OLEADA DE ASALTO";
+            document.getElementById('hud-subphase').className = "text-xs text-yellow-400 tracking-wider mt-0.5";
+        }
+
+        // --- MEDKIT & SKILL ACTIONS ---
+        function useMedkit() {
+            if (!player || gameState.medkits <= 0) return;
+            if (player.hp >= player.maxHp && player.shield >= player.maxShield) return;
+
+            gameState.medkits--;
+            player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.55);
+            player.shield = Math.min(player.maxShield, player.shield + player.maxShield * 0.55);
+
+            synthManager.playHeal();
+            createExplosion(player.x, player.y, '#00ff66', 25);
+            updateHUD();
+        }
+
+        function triggerSkill() {
+            if (!player || gameState.skillCooldown > 0 || gameState.status !== 'playing') return;
+
+            gameState.skillCooldown = 600;
+            shakeCamera(20);
+            createExplosion(player.x, player.y, '#ff00ea', 45);
+            synthManager.playExplosion();
+
+            entities.forEach(e => {
+                if (e instanceof Bullet && e.isEnemy) {
+                    e.markedForDeletion = true;
+                } else if (e.isEnemy && !(e instanceof Bullet) && typeof e.takeDamage === 'function') {
+                    e.takeDamage(player.dmg * 8);
+                }
+            });
+        }
+
+        // --- SPAWNER & MAIN LOOP ---
+        function handleSpawning() {
+            if (gameState.status !== 'playing') return;
+
+            gameState.medkitSpawnTimer++;
+            if (gameState.medkitSpawnTimer >= 1080) {
+                gameState.medkitSpawnTimer = 0;
+                entities.push(new Pickup(random(60, width - 60), -30, 'medkit'));
+            }
+
+            if (gameState.phaseState === 'wave') {
+                if (gameState.enemiesKilledInPhase >= gameState.enemiesRequiredForBoss) {
+                    gameState.phaseState = 'boss';
+                    document.getElementById('hud-subphase').innerText = "¡JEFE DE FASE EN COMBATE!";
+                    document.getElementById('hud-subphase').className = "text-xs text-red-500 font-bold tracking-wider mt-0.5 animate-pulse";
+                    entities.push(new Boss(gameState.phase));
+                    return;
+                }
+
+                const activeEnemies = entities.filter(e => e.isEnemy && !e.isBoss).length;
+                const maxConcurrent = Math.min(8, 3 + Math.floor(gameState.phase / 2));
+                if (activeEnemies < maxConcurrent && Math.random() < 0.04) {
+                    let tier = Math.random() < Math.min(0.45, 0.1 + gameState.phase * 0.04) ? 2 : 1;
+                    entities.push(new Enemy(random(40, width - 40), -40, tier, false));
+                }
+            }
+        }
+
+        function update() {
+            stars.forEach(s => {
+                s.y += s.speed * (gameState.status === 'playing' ? 1.5 : 0.5);
+                if (s.y > height) { s.y = 0; s.x = Math.random() * width; }
+            });
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            if (gameState.cameraShake > 0) gameState.cameraShake *= 0.85;
+
+            if (gameState.status !== 'playing') return;
+
+            if (gameState.skillCooldown > 0) {
+                gameState.skillCooldown--;
+                const sec = Math.ceil(gameState.skillCooldown / 60);
+                document.getElementById('skill-status').innerText = sec > 0 ? `${sec}s` : 'LISTO';
+            }
+
+            handleSpawning();
+
+            for (let i = 0; i < entities.length; i++) {
+                entities[i].update();
+            }
+
+            for (let i = 0; i < entities.length; i++) {
+                let a = entities[i];
+                if (a.markedForDeletion) continue;
+
+                if (a instanceof Bullet && !a.isEnemy) {
+                    for (let j = 0; j < entities.length; j++) {
+                        let b = entities[j];
+                        if (!b.markedForDeletion && b.isEnemy && !(b instanceof Bullet) && typeof b.takeDamage === 'function') {
+                            let dist = Math.hypot(a.x - b.x, a.y - b.y);
+                            if (dist < a.radius + b.radius) {
+                                a.markedForDeletion = true;
+                                b.takeDamage(a.dmg);
+                                createExplosion(a.x, a.y, a.color, 5);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (a instanceof Bullet && a.isEnemy && player) {
+                    let dist = Math.hypot(a.x - player.x, a.y - player.y);
+                    if (dist < a.radius + player.radius - 4) {
+                        a.markedForDeletion = true;
+                        player.takeDamage(a.dmg);
+                    }
+                }
+
+                if (a.isEnemy && !(a instanceof Bullet) && !a.isBoss && player) {
+                    let dist = Math.hypot(a.x - player.x, a.y - player.y);
+                    if (dist < a.radius + player.radius - 6) {
+                        a.takeDamage(9999);
+                        player.takeDamage(25);
+                    }
+                }
+            }
+
+            entities = entities.filter(e => !e.markedForDeletion);
+        }
+
+        function draw() {
+            ctx.save();
+            ctx.fillStyle = '#050510';
+            ctx.fillRect(0, 0, width, height);
+
+            const grad = ctx.createRadialGradient(width * 0.5, height * 0.3, 50, width * 0.5, height * 0.3, width * 0.7);
+            grad.addColorStop(0, 'rgba(0, 243, 255, 0.06)');
+            grad.addColorStop(0.5, 'rgba(255, 0, 234, 0.04)');
+            grad.addColorStop(1, 'transparent');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+
+            if (gameState.cameraShake > 0.5) {
+                ctx.translate(random(-gameState.cameraShake, gameState.cameraShake), random(-gameState.cameraShake, gameState.cameraShake));
+            }
+
+            stars.forEach(s => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            if (gameState.screen === 'game') {
+                entities.forEach(e => e.draw(ctx));
+            }
+
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, p.life);
+                ctx.fillStyle = p.color;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- UI & NAVIGATION ---
+        function switchScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const target = document.getElementById(`screen-${screenId}`);
+            if (target) target.classList.add('active');
+            gameState.screen = screenId;
+            document.body.classList.toggle('in-gameplay', screenId === 'game');
+            if (screenId !== 'game') {
+                resetMobileJoystick();
+            }
+
+            if (screenId === 'lobby') {
+                updateLobbyUI();
+                setLobbyTab(currentLobbyTab);
+            } else if (screenId === 'online' && typeof window.renderLeaderboard === 'function') {
+                window.renderLeaderboard();
+            }
+        }
+
+        function startGame(mode) {
+            gameState.mode = mode;
+            if (gameState.intermissionInterval) clearInterval(gameState.intermissionInterval);
+            document.getElementById('intermission-ui').classList.add('hidden');
+            document.getElementById('boss-ui').classList.add('hidden');
+            document.getElementById('screen-modal').classList.add('hidden');
+
+            const shipData = SHIPS_DB.find(s => s.id === playerProfile.activeShip) || SHIPS_DB[0];
+            player = new Player(shipData);
+            entities = [player];
+            particles = [];
+
+            gameState.status = 'playing';
+            gameState.phase = mode === 'campaign' ? playerProfile.maxPhaseReached : 1;
+            gameState.phaseState = 'wave';
+            gameState.enemiesKilledInPhase = 0;
+            gameState.enemiesRequiredForBoss = 8 + gameState.phase * 2;
+            gameState.score = 0;
+            const upgradeMedkits = Math.max(0, (playerProfile.upgrades.medkits || 1) - 1);
+            gameState.medkits = 1 + (playerProfile.bonusMedkits || 0) + upgradeMedkits;
+            gameState.medkitSpawnTimer = 0;
+            gameState.skillCooldown = 0;
+
+            document.getElementById('hud-phase').innerText = `FASE ${gameState.phase}`;
+            document.getElementById('hud-subphase').innerText = "OLEADA DE ASALTO";
+            document.getElementById('hud-subphase').className = "text-xs text-yellow-400 tracking-wider mt-0.5";
+
+            switchScreen('game');
+            updateHUD();
+        }
+
+        function updateHUD() {
+            if (!player) return;
+            const hpPct = Math.max(0, (player.hp / player.maxHp) * 100);
+            const shPct = Math.max(0, (player.shield / player.maxShield) * 100);
+
+            document.getElementById('hud-hp-bar').style.width = hpPct + '%';
+            document.getElementById('hud-hp-text').innerText = `${Math.ceil(player.hp)}/${player.maxHp}`;
+
+            document.getElementById('hud-shield-bar').style.width = shPct + '%';
+            document.getElementById('hud-shield-text').innerText = `${Math.ceil(player.shield)}/${player.maxShield}`;
+
+            document.getElementById('hud-score').innerText = gameState.score;
+            document.getElementById('hud-coins').innerText = playerProfile.coins;
+            document.getElementById('hud-medkits').innerText = gameState.medkits;
+
+            const medkitBtn = document.getElementById('btn-use-medkit');
+            const badge = document.getElementById('medkit-ready-badge');
+            if (gameState.medkits > 0) {
+                medkitBtn.classList.add('heal-btn-ready');
+                medkitBtn.style.opacity = '1';
+                badge.classList.remove('hidden');
+            } else {
+                medkitBtn.classList.remove('heal-btn-ready');
+                medkitBtn.style.opacity = '0.5';
+                badge.classList.add('hidden');
+            }
+        }
+
+        function togglePause() {
+            if (gameState.status === 'playing') {
+                gameState.status = 'paused';
+                document.getElementById('screen-modal').classList.remove('hidden');
+                document.getElementById('modal-title').innerText = 'PAUSA';
+                document.getElementById('modal-title').className = 'text-4xl title-font font-black text-cyan-400 mb-2';
+                document.getElementById('modal-desc').innerText = 'Combate en pausa.';
+                document.getElementById('modal-stats').classList.add('hidden');
+                document.getElementById('btn-resume').style.display = 'block';
+            } else if (gameState.status === 'paused') {
+                gameState.status = 'playing';
+                document.getElementById('screen-modal').classList.add('hidden');
+            }
+        }
+
+        function gameOver() {
+            gameState.status = 'gameover';
+            if (gameState.intermissionInterval) clearInterval(gameState.intermissionInterval);
+            if (gameState.score > (playerProfile.bestScore || 0)) {
+                playerProfile.bestScore = gameState.score;
+            }
+            document.getElementById('screen-modal').classList.remove('hidden');
+            document.getElementById('modal-title').innerText = 'NAVE DESTRUIDA';
+            document.getElementById('modal-title').className = 'text-4xl title-font font-black text-red-500 mb-2';
+            document.getElementById('modal-desc').innerText = 'Tu escuadrón ha caído en combate.';
+            document.getElementById('modal-stats').classList.remove('hidden');
+            document.getElementById('m-phase').innerText = gameState.phase;
+            document.getElementById('m-score').innerText = gameState.score;
+            document.getElementById('btn-resume').style.display = 'none';
+            saveGame();
+        }
+
+        function endGame() {
+            if (gameState.intermissionInterval) clearInterval(gameState.intermissionInterval);
+            if (gameState.score > (playerProfile.bestScore || 0)) {
+                playerProfile.bestScore = gameState.score;
+            }
+            gameState.status = 'menu';
+            document.getElementById('screen-modal').classList.add('hidden');
+            saveGame();
+            switchScreen('menu');
+        }
+
+        // --- LOBBY FUNCTIONS ---
+        function updateLobbyUI() {
+            document.getElementById('lobby-coins').innerText = playerProfile.coins;
+            document.getElementById('lobby-gems').innerText = playerProfile.gems;
+
+            const ship = SHIPS_DB.find(s => s.id === playerProfile.activeShip) || SHIPS_DB[0];
+            const hp = ship.hp + (playerProfile.upgrades.hull - 1) * 35;
+            const sh = ship.shield + (playerProfile.upgrades.shield - 1) * 25;
+            const dmg = ship.dmg + (playerProfile.upgrades.weapon - 1) * 8;
+            const vel = (ship.speed + (playerProfile.upgrades.thrusters - 1) * 0.45).toFixed(1);
+
+            document.getElementById('lobby-ship-name').innerText = ship.name;
+            document.getElementById('lobby-ship-desc').innerText = `${ship.desc} (Vel: ${vel})`;
+            document.getElementById('stat-hp').innerText = hp;
+            document.getElementById('stat-shield').innerText = sh;
+            document.getElementById('stat-dmg').innerText = dmg;
+
+            document.getElementById('bar-hp').style.width = Math.min(100, (hp / 700) * 100) + '%';
+            document.getElementById('bar-shield').style.width = Math.min(100, (sh / 500) * 100) + '%';
+            document.getElementById('bar-dmg').style.width = Math.min(100, (dmg / 120) * 100) + '%';
+
+            const pCanvas = document.getElementById('lobby-preview-canvas');
+            const pCtx = pCanvas.getContext('2d');
+            pCtx.clearRect(0, 0, 180, 180);
+            drawShipGeometry(pCtx, 90, 95, 42, ship.color, ship.design, false);
+        }
+
+        function setLobbyTab(tab) {
+            currentLobbyTab = tab;
+            const tabMap = {
+                upgrades: 'tab-btn-upgrades',
+                ships: 'tab-btn-ships',
+                shop: 'tab-btn-shop'
+            };
+            Object.entries(tabMap).forEach(([key, id]) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (key === tab) {
+                        el.style.background = key === 'shop' ? 'var(--neon-magenta)' : 'var(--neon-cyan)';
+                        el.style.color = '#000';
+                    } else {
+                        el.style.background = '';
+                        el.style.color = '';
+                    }
+                }
+            });
+            renderLobbyTab();
+        }
+
+        function renderLobbyTab() {
+            const container = document.getElementById('lobby-tab-content');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (currentLobbyTab === 'ships') {
+                SHIPS_DB.forEach(ship => {
+                    const owned = playerProfile.unlockedShips.includes(ship.id);
+                    const equipped = playerProfile.activeShip === ship.id;
+                    const btnHtml = equipped
+                        ? `<button type="button" class="w-full py-2 rounded bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold text-xs">EQUIPADA</button>`
+                        : owned
+                        ? `<button type="button" onclick="equipShip('${ship.id}')" class="cy-btn w-full py-2 text-xs">EQUIPAR</button>`
+                        : `<button type="button" onclick="buyShip('${ship.id}')" class="cy-btn cy-btn-magenta w-full py-2 text-xs">COMPRAR (${ship.cost} ${ship.currency === 'gems' ? 'GEMAS' : 'MONEDAS'})</button>`;
+
+                    container.innerHTML += `
+                        <div class="bg-black/50 border border-white/10 p-4 rounded-xl flex flex-col justify-between">
+                            <div>
+                                <div class="flex justify-between items-center gap-2">
+                                    <h4 class="title-font font-bold text-sm text-white" style="color:${ship.color}">${ship.name}</h4>
+                                    <span class="text-xs text-gray-400">DMG ${ship.dmg} | VEL ${ship.speed}</span>
+                                </div>
+                                <p class="text-xs text-gray-400 my-2">${ship.desc}</p>
+                            </div>
+                            ${btnHtml}
+                        </div>
+                    `;
+                });
+            } else if (currentLobbyTab === 'upgrades') {
+                Object.keys(UPGRADES_DB).forEach(key => {
+                    const upg = UPGRADES_DB[key];
+                    const lv = playerProfile.upgrades[key];
+                    const cost = upg.baseCost * lv;
+                    const isMax = lv >= upg.maxLv;
+
+                    container.innerHTML += `
+                        <div class="bg-black/50 border border-white/10 p-4 rounded-xl flex flex-col justify-between">
+                            <div>
+                                <div class="flex justify-between items-center">
+                                    <h4 class="title-font font-bold text-cyan-400">${upg.name}</h4>
+                                    <span class="text-xs bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded">NV ${lv}/${upg.maxLv}</span>
+                                </div>
+                                <p class="text-xs text-gray-400 my-2">${upg.desc}</p>
+                            </div>
+                            <button type="button" onclick="buyUpgrade('${key}', ${cost})" ${isMax ? 'disabled' : ''} class="cy-btn w-full py-2 text-xs ${isMax ? 'opacity-50 cursor-not-allowed' : ''}">
+                                ${isMax ? 'NIVEL MÁXIMO' : `MEJORAR (${cost} MONEDAS)`}
+                            </button>
+                        </div>
+                    `;
+                });
+            } else if (currentLobbyTab === 'shop') {
+                SHOP_DB.forEach(item => {
+                    const shipOwned = item.type === 'unlock_ship' && playerProfile.unlockedShips.includes(item.shipId);
+                    const upgMaxed = item.type === 'upgrade' && playerProfile.upgrades[item.stat] >= UPGRADES_DB[item.stat].maxLv;
+                    const disabled = shipOwned || upgMaxed;
+                    const btnLabel = shipOwned
+                        ? 'YA DESBLOQUEADA'
+                        : upgMaxed
+                        ? 'NIVEL MÁXIMO'
+                        : `CANJEAR (${item.cost} ${item.currency === 'gems' ? 'GEMAS' : 'MONEDAS'})`;
+
+                    container.innerHTML += `
+                        <div class="bg-black/50 border border-fuchsia-500/30 p-4 rounded-xl flex flex-col justify-between gap-3">
+                            <div>
+                                <div class="flex items-center justify-between gap-2 mb-1.5">
+                                    <span class="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">${item.badge}</span>
+                                    <i class="fas ${item.icon || 'fa-star'} text-fuchsia-400 text-base"></i>
+                                </div>
+                                <h4 class="title-font font-bold text-sm text-fuchsia-300">${item.name}</h4>
+                                <p class="text-xs text-gray-300 mt-1.5 leading-relaxed">${item.desc}</p>
+                            </div>
+                            <button type="button" onclick="buyShopItem('${item.id}')" ${disabled ? 'disabled' : ''} class="cy-btn cy-btn-magenta w-full py-2 text-xs ${disabled ? 'opacity-50 cursor-not-allowed' : ''}">
+                                ${btnLabel}
+                            </button>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        function equipShip(id) {
+            playerProfile.activeShip = id;
+            saveGame();
+            updateLobbyUI();
+            renderLobbyTab();
+        }
+
+        function buyShip(id) {
+            const ship = SHIPS_DB.find(s => s.id === id);
+            if (!ship) return;
+            if (ship.currency === 'gems' && playerProfile.gems >= ship.cost) {
+                playerProfile.gems -= ship.cost;
+                playerProfile.unlockedShips.push(id);
+                equipShip(id);
+            } else if (ship.currency === 'coins' && playerProfile.coins >= ship.cost) {
+                playerProfile.coins -= ship.cost;
+                playerProfile.unlockedShips.push(id);
+                equipShip(id);
+            }
+        }
+
+        function buyUpgrade(key, cost) {
+            if (playerProfile.coins >= cost && playerProfile.upgrades[key] < UPGRADES_DB[key].maxLv) {
+                playerProfile.coins -= cost;
+                playerProfile.upgrades[key]++;
+                saveGame();
+                updateLobbyUI();
+                renderLobbyTab();
+            }
+        }
+
+        function buyShopItem(id) {
+            const item = SHOP_DB.find(i => i.id === id);
+            if (!item) return;
+
+            if (item.type === 'unlock_ship' && playerProfile.unlockedShips.includes(item.shipId)) return;
+            if (item.type === 'upgrade' && playerProfile.upgrades[item.stat] >= UPGRADES_DB[item.stat].maxLv) return;
+
+            const hasFunds = item.currency === 'gems'
+                ? playerProfile.gems >= item.cost
+                : playerProfile.coins >= item.cost;
+
+            if (!hasFunds) return;
+
+            if (item.currency === 'gems') playerProfile.gems -= item.cost;
+            else playerProfile.coins -= item.cost;
+
+            if (item.type === 'coins') {
+                playerProfile.coins += item.amount;
+            } else if (item.type === 'gems') {
+                playerProfile.gems += item.amount;
+            } else if (item.type === 'bonusMedkits') {
+                playerProfile.bonusMedkits = (playerProfile.bonusMedkits || 0) + item.amount;
+            } else if (item.type === 'upgrade') {
+                playerProfile.upgrades[item.stat]++;
+            } else if (item.type === 'unlock_ship') {
+                if (!playerProfile.unlockedShips.includes(item.shipId)) {
+                    playerProfile.unlockedShips.push(item.shipId);
+                }
+                playerProfile.activeShip = item.shipId;
+            } else if (item.type === 'combo_vanguard') {
+                playerProfile.coins += item.coins;
+                playerProfile.bonusMedkits = (playerProfile.bonusMedkits || 0) + item.medkits;
+            } else if (item.type === 'combo_titan' || item.type === 'combo_nova') {
+                playerProfile.coins += item.coins;
+                if (playerProfile.upgrades[item.stat] < UPGRADES_DB[item.stat].maxLv) {
+                    playerProfile.upgrades[item.stat]++;
+                }
+            } else if (item.type === 'combo_aegis') {
+                playerProfile.gems += item.gems;
+                if (playerProfile.upgrades[item.stat] < UPGRADES_DB[item.stat].maxLv) {
+                    playerProfile.upgrades[item.stat]++;
+                }
+            } else if (item.type === 'combo_grand') {
+                playerProfile.coins += item.coins;
+                playerProfile.gems += item.gems;
+                playerProfile.bonusMedkits = (playerProfile.bonusMedkits || 0) + item.medkits;
+            }
+
+            saveGame();
+            updateLobbyUI();
+            renderLobbyTab();
+        }
+
+        // --- INPUT LISTENERS ---
+        window.addEventListener('keydown', e => {
+            gameState.keys[e.code] = true;
+            if (gameState.screen === 'game') {
+                if (e.code === 'KeyH') useMedkit();
+                if (e.code === 'Space') triggerSkill();
+                if (e.code === 'Escape' || e.code === 'KeyP') togglePause();
+            }
+        });
+        window.addEventListener('keyup', e => gameState.keys[e.code] = false);
+
+        // Mobile Virtual Joystick Handlers
+        const joystickZone = document.getElementById('mobile-joystick-zone');
+        const joystickKnob = document.getElementById('mobile-joystick-knob');
+
+        function resetMobileJoystick() {
+            gameState.joystick.active = false;
+            gameState.joystick.touchId = null;
+            gameState.joystick.dx = 0;
+            gameState.joystick.dy = 0;
+            if (joystickKnob) {
+                joystickKnob.style.transform = 'translate(0px, 0px)';
+            }
+        }
+
+        function updateJoystickFromPoint(clientX, clientY) {
+            if (!joystickZone) return;
+            const rect = joystickZone.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let rawX = clientX - centerX;
+            let rawY = clientY - centerY;
+            const dist = Math.hypot(rawX, rawY);
+            const maxR = gameState.joystick.maxRadius;
+
+            if (dist > maxR && dist > 0) {
+                rawX = (rawX / dist) * maxR;
+                rawY = (rawY / dist) * maxR;
+            }
+
+            gameState.joystick.dx = rawX / maxR;
+            gameState.joystick.dy = rawY / maxR;
+            if (joystickKnob) {
+                joystickKnob.style.transform = `translate(${rawX}px, ${rawY}px)`;
+            }
+        }
+
+        if (joystickZone) {
+            joystickZone.addEventListener('touchstart', e => {
+                if (gameState.screen !== 'game' || gameState.status !== 'playing') return;
+                e.preventDefault();
+                e.stopPropagation();
+                const touch = e.changedTouches[0];
+                gameState.joystick.active = true;
+                gameState.joystick.touchId = touch.identifier;
+                gameState.pointer.active = false;
+                updateJoystickFromPoint(touch.clientX, touch.clientY);
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', e => {
+                if (!gameState.joystick.active) return;
+                e.preventDefault();
+                e.stopPropagation();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === gameState.joystick.touchId) {
+                        updateJoystickFromPoint(t.clientX, t.clientY);
+                        break;
+                    }
+                }
+            }, { passive: false });
+
+            const handleJoystickEnd = e => {
+                if (!gameState.joystick.active) return;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === gameState.joystick.touchId) {
+                        resetMobileJoystick();
+                        break;
+                    }
+                }
+            };
+            joystickZone.addEventListener('touchend', handleJoystickEnd);
+            joystickZone.addEventListener('touchcancel', handleJoystickEnd);
+        }
+
+        canvas.addEventListener('pointerdown', e => {
+            if (gameState.joystick.active) return;
+            gameState.pointer.active = true;
+            gameState.pointer.x = e.clientX;
+            gameState.pointer.y = e.clientY;
+        });
+        canvas.addEventListener('pointermove', e => {
+            if (gameState.pointer.active && !gameState.joystick.active) {
+                gameState.pointer.x = e.clientX;
+                gameState.pointer.y = e.clientY;
+            }
+        });
+        window.addEventListener('pointerup', () => gameState.pointer.active = false);
+        window.addEventListener('pointercancel', () => gameState.pointer.active = false);
+
+        // Start canvas animation loop immediately and initialize account screen
+        window.addEventListener('DOMContentLoaded', () => {
+            resize();
+            loadGame();
+            populateAccountDropdown();
+            setAuthMode(Object.keys(accountsRegistry).length > 0 ? 'login' : 'register');
+            if (playerProfile.name && playerProfile.name !== 'Comandante') {
+                document.getElementById('login-username').value = playerProfile.name;
+            }
+            requestAnimationFrame(gameLoop);
+        });
+    </script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuración conectada a tu proyecto Firebase (nexus-83a6b)
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyA9npWZQ8pnvJbz8yIXWEG9B5GfWw3aQ58",
+            authDomain: "nexus-83a6b.firebaseapp.com",
+            databaseURL: "https://nexus-83a6b-default-rtdb.firebaseio.com",
+            projectId: "nexus-83a6b",
+            storageBucket: "nexus-83a6b.firebasestorage.app",
+            messagingSenderId: "729257321683",
+            appId: "1:729257321683:web:0139f1edd9181289536026",
+            measurementId: "G-J2D69TMRWC"
+        };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nexus-galaxy-shooter';
+        const rawConfig = FIREBASE_CONFIG || (typeof __firebase_config !== 'undefined' ? __firebase_config : null);
+        const customToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let firebaseAuth = null;
+
+        function renderLeaderboard() {
+            const listEl = document.getElementById('leaderboard-list');
+            if (!listEl) return;
+
+            const currentEntry = {
+                pilotId: cloudState.userId || 'LOCAL-PILOT',
+                name: playerProfile.name || 'Comandante',
+                bestScore: Math.max(playerProfile.bestScore || 0, gameState.score || 0),
+                maxPhase: Math.max(playerProfile.maxPhaseReached || 1, gameState.phase || 1),
+                ship: playerProfile.activeShip,
+                isCurrentUser: true
+            };
+
+            const combined = [...cloudState.leaderboard.filter(entry => entry.pilotId !== currentEntry.pilotId), currentEntry]
+                .sort((a, b) => (b.bestScore - a.bestScore) || (b.maxPhase - a.maxPhase))
+                .slice(0, 15);
+
+            listEl.innerHTML = combined.map((entry, idx) => {
+                const medalColor = idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-gray-300' : idx === 2 ? 'text-amber-600' : 'text-cyan-400';
+                return `
+                    <div class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border ${entry.isCurrentUser ? 'bg-cyan-950/40 border-cyan-400/60' : 'bg-black/50 border-white/10'}">
+                        <div class="flex items-center gap-3">
+                            <span class="title-font font-black text-base w-7 text-center ${medalColor}">#${idx + 1}</span>
+                            <div>
+                                <div class="title-font font-bold text-sm text-white flex items-center gap-2">
+                                    <span>${entry.name}</span>
+                                    ${entry.isCurrentUser ? '<span class="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">TÚ</span>' : ''}
+                                </div>
+                                <div class="text-[11px] text-gray-400 font-mono">${entry.pilotId}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-5 text-right">
+                            <div>
+                                <div class="text-[10px] text-gray-400">FASE MÁX.</div>
+                                <div class="title-font text-sm font-bold text-cyan-300">${entry.maxPhase}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-gray-400">RÉCORD</div>
+                                <div class="title-font text-sm font-bold text-yellow-400">${(entry.bestScore || 0).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        window.renderLeaderboard = renderLeaderboard;
+
+        window.syncCloudNow = async function(manual = false) {
+            const statusText = document.getElementById('online-status-text');
+            if (!cloudState.ready || !cloudState.db || !cloudState.userId) {
+                if (manual && statusText) {
+                    statusText.innerText = 'Guardado localmente (esperando conexión con la nube)...';
+                }
+                return;
+            }
+
+            try {
+                if (manual && statusText) {
+                    statusText.innerText = 'Guardando progreso en la nube...';
+                }
+
+                const privateRef = doc(cloudState.db, 'artifacts', appId, 'users', cloudState.userId, 'saveData', 'profile');
+                const safeProfile = {
+                    name: playerProfile.name || 'Comandante',
+                    coins: playerProfile.coins || 0,
+                    gems: playerProfile.gems || 0,
+                    bonusMedkits: playerProfile.bonusMedkits || 0,
+                    activeShip: playerProfile.activeShip || 'ship_light',
+                    unlockedShips: Array.isArray(playerProfile.unlockedShips) ? playerProfile.unlockedShips : ['ship_light'],
+                    upgrades: playerProfile.upgrades || {},
+                    maxPhaseReached: Math.max(playerProfile.maxPhaseReached || 1, gameState.phase || 1),
+                    bestScore: Math.max(playerProfile.bestScore || 0, gameState.score || 0),
+                    updatedAt: Date.now()
+                };
+                await setDoc(privateRef, safeProfile, { merge: true });
+
+                const publicRef = doc(cloudState.db, 'artifacts', appId, 'public', 'data', 'leaderboard', cloudState.userId);
+                await setDoc(publicRef, {
+                    pilotId: cloudState.userId,
+                    name: safeProfile.name,
+                    bestScore: safeProfile.bestScore,
+                    maxPhase: safeProfile.maxPhaseReached,
+                    ship: safeProfile.activeShip,
+                    updatedAt: Date.now()
+                }, { merge: true });
+
+                if (statusText) {
+                    statusText.innerText = manual
+                        ? '¡Progreso y récord guardados en la nube!'
+                        : 'Conectado a la red galáctica en tiempo real.';
+                }
+                renderLeaderboard();
+            } catch (err) {
+                console.warn('Error sincronizando en la nube:', err);
+                if (statusText) {
+                    statusText.innerText = 'Error al sincronizar en la nube (revisa reglas de Firestore).';
+                }
+            }
+        };
+
+        window.syncLocalAccountToCloud = async function(accountKey, accountData) {
+            if (!cloudState.ready || !cloudState.db || !accountKey || !accountData) return;
+            try {
+                const accRef = doc(cloudState.db, 'artifacts', appId, 'public', 'data', 'local_accounts', accountKey);
+                await setDoc(accRef, {
+                    name: accountData.name || 'Comandante',
+                    pin: accountData.pin || '',
+                    coins: accountData.coins || 0,
+                    gems: accountData.gems || 0,
+                    bonusMedkits: accountData.bonusMedkits || 0,
+                    activeShip: accountData.activeShip || 'ship_light',
+                    unlockedShips: Array.isArray(accountData.unlockedShips) ? accountData.unlockedShips : ['ship_light'],
+                    upgrades: accountData.upgrades || {},
+                    maxPhaseReached: accountData.maxPhaseReached || 1,
+                    bestScore: accountData.bestScore || 0,
+                    updatedAt: Date.now()
+                }, { merge: true });
+            } catch (err) {
+                console.warn('Error guardando cuenta local en la nube:', err);
+            }
+        };
+
+        window.fetchCloudAccountByName = async function(name) {
+            if (!cloudState.ready || !cloudState.db) return null;
+            const key = normalizeAccountKey(name);
+            if (!key) return null;
+            try {
+                const accRef = doc(cloudState.db, 'artifacts', appId, 'public', 'data', 'local_accounts', key);
+                const snap = await getDoc(accRef);
+                return snap.exists() ? snap.data() : null;
+            } catch (err) {
+                console.warn('Error buscando cuenta en la nube:', err);
+                return null;
+            }
+        };
+
+        window.signOutGoogleAccount = async function() {
+            if (firebaseAuth) {
+                try {
+                    await signOut(firebaseAuth);
+                } catch (e) {}
+            }
+        };
+
+        window.handleGoogleLogin = async function() {
+            const feedback = document.getElementById('auth-feedback');
+            if (!firebaseAuth || !cloudState.db) {
+                if (feedback) feedback.textContent = 'Inicializando conexión con Firebase... intenta de nuevo en un segundo.';
+                return;
+            }
+            try {
+                if (feedback) feedback.textContent = 'Abriendo ventana de Google...';
+                const provider = new GoogleAuthProvider();
+                const result = await signInWithPopup(firebaseAuth, provider);
+                const user = result.user;
+                const uid = user.uid;
+                const googleName = user.displayName || (user.email ? user.email.split('@')[0] : 'Piloto Google');
+
+                cloudState.userId = uid;
+                cloudState.ready = true;
+
+                playerProfile.name = googleName;
+                activeAccountKey = normalizeAccountKey(googleName) || uid;
+                await loadCloudProfileForUser(cloudState.db, uid, googleName);
+                saveGame();
+
+                if (feedback) feedback.textContent = `Sesión iniciada como ${googleName}.`;
+                await enterAuthenticatedSession();
+            } catch (err) {
+                console.warn('Error al iniciar sesión con Google:', err);
+                if (feedback) {
+                    feedback.textContent = err?.code === 'auth/unauthorized-domain'
+                        ? 'Dominio no autorizado en Firebase. Agrega davidarios1109-eng.github.io en Dominios autorizados.'
+                        : `No se pudo iniciar sesión con Google (${err?.code || 'error'}).`;
+                }
+            }
+        };
+        async function loadCloudProfileForUser(db, uid, googleDisplay = null) {
+            if (!db || !uid) return;
+            try {
+                const privateRef = doc(db, 'artifacts', appId, 'users', uid, 'saveData', 'profile');
+                const snap = await getDoc(privateRef);
+                if (snap.exists()) {
+                    const cloudData = snap.data();
+                    const nextName = googleDisplay || cloudData.name || playerProfile.name || 'Comandante';
+                    playerProfile = mergeProfileData(
+                        createDefaultProfile(nextName, playerProfile.pin || ''),
+                        { ...cloudData, name: nextName }
+                    );
+                    activeAccountKey = normalizeAccountKey(playerProfile.name) || 'comandante';
+                    accountsRegistry[activeAccountKey] = { ...playerProfile, updatedAt: Date.now() };
+                    persistAccountsRegistry();
+                    localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccountKey);
+                    localStorage.setItem('nexus_galaxy_save_v2', JSON.stringify(playerProfile));
+                } else if (googleDisplay) {
+                    playerProfile.name = googleDisplay;
+                }
+            } catch (err) {
+                console.warn('Error cargando perfil desde la nube:', err);
+            }
+        }
+
+        async function initOnlineBackend() {
+            const idBadge = document.getElementById('online-pilot-id');
+            const statusText = document.getElementById('online-status-text');
+
+            if (!rawConfig) {
+                if (statusText) statusText.innerText = 'Modo local activo (pega FIREBASE_CONFIG para activar Google y la nube).';
+                renderLeaderboard();
+                return;
+            }
+
+            try {
+                const firebaseConfig = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+                firebaseAuth = auth;
+
+                if (customToken) {
+                    await signInWithCustomToken(auth, customToken);
+                } else if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
+
+                const uid = auth.currentUser?.uid || crypto.randomUUID();
+                cloudState.db = db;
+                cloudState.userId = uid;
+                cloudState.ready = true;
+
+                if (idBadge) idBadge.innerText = `ID: ${uid}`;
+                if (statusText) statusText.innerText = 'Conectado a la red galáctica en tiempo real.';
+
+                const googleDisplay = auth.currentUser && !auth.currentUser.isAnonymous
+                    ? (auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || null)
+                    : null;
+                await loadCloudProfileForUser(db, uid, googleDisplay);
+
+                const lbCol = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                onSnapshot(lbCol, (snapshot) => {
+                    const entries = [];
+                    snapshot.forEach((docSnap) => {
+                        entries.push(docSnap.data());
+                    });
+                    cloudState.leaderboard = entries;
+                    renderLeaderboard();
+                }, (err) => {
+                    console.warn('Error leyendo ranking:', err);
+                    renderLeaderboard();
+                });
+
+                await window.syncCloudNow(false);
+            } catch (e) {
+                console.warn('Error inicializando backend online:', e);
+                if (statusText) statusText.innerText = 'Sin conexión en la nube; progreso guardado en el dispositivo.';
+                renderLeaderboard();
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initOnlineBackend();
+            renderLeaderboard();
+        });
+    </script>
+</body>
+</html>
